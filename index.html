@@ -53,6 +53,16 @@
         style="border:1px solid var(--slate-300);border-radius:6px;padding:4px 10px;font-size:.85rem;width:130px;" />
     </div>
     <button class="btn-sample" id="btnSample"><i class="fas fa-flask"></i> サンプルデータで試す</button>
+    <div id="localRestoreArea" style="display:none;margin-top:14px;padding:12px 16px;background:var(--amber-50,#fffbeb);border:1px solid var(--amber-300,#fcd34d);border-radius:8px;text-align:left;">
+      <p style="margin:0 0 8px;font-size:.9rem;font-weight:600;color:var(--amber-700,#b45309);">
+        <i class="fas fa-database"></i> ブラウザに保存された受注状態データが見つかりました
+      </p>
+      <p style="margin:0 0 10px;font-size:.82rem;color:var(--slate-600);" id="localRestoreCount"></p>
+      <button id="btnRestoreToServer" class="btn-sample" style="background:var(--amber-500,#f59e0b);color:#fff;border-color:var(--amber-500,#f59e0b);margin-right:8px;">
+        <i class="fas fa-cloud-upload-alt"></i> サーバーに復元する
+      </button>
+      <button id="btnIgnoreLocal" style="background:none;border:none;color:var(--slate-400);font-size:.8rem;cursor:pointer;text-decoration:underline;">無視する</button>
+    </div>
   </div>
 </section>
 

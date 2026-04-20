@@ -1479,6 +1479,89 @@ function exportCSV() {
 }
 
 // ============================================================
+// LOCAL → SERVER RESTORE
+// ============================================================
+async function _restoreLocalToServer() {
+  // localStorageから直接読む（orderStatusStoreはすでにマージ済みだが念のため）
+  let localData = {};
+  try {
+    const raw = localStorage.getItem('molShipOrderStatus_v1');
+    if (raw) localData = JSON.parse(raw);
+  } catch(e) { return; }
+
+  const localKeys = Object.keys(localData).filter(k => {
+    const rec = localData[k];
+    return rec && rec.status && rec.status !== 'other';
+  });
+
+  if (localKeys.length === 0) return; // 保存済みデータなし
+
+  if (_useServer) {
+    // サーバーに存在しないキーを自動アップロード
+    try {
+      const serverRes = await fetch('/api/order-status');
+      const serverJson = await serverRes.json();
+      const serverKeys = serverJson.ok ? Object.keys(serverJson.data || {}) : [];
+      const missingKeys = localKeys.filter(k => !serverKeys.includes(k));
+      if (missingKeys.length > 0) {
+        const uploadPromises = missingKeys.map(key =>
+          fetch('/api/order-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key, ...localData[key] }),
+          }).catch(() => {})
+        );
+        await Promise.all(uploadPromises);
+        console.log(`localStorageから${missingKeys.length}件の受注状態をサーバーに自動復元しました`);
+        toast(`${missingKeys.length}件の受注状態をサーバーに自動復元しました`, 'success');
+      }
+    } catch(e) {
+      console.warn('サーバーへの自動復元に失敗:', e);
+      // 失敗した場合は手動復元UIを表示
+      _showLocalRestoreUI(localData, localKeys);
+    }
+  } else {
+    // サーバーなし→手動復元UIも不要（localStorageから直接使う）
+  }
+}
+
+// 手動復元UI表示（サーバーへの自動復元が失敗した場合）
+function _showLocalRestoreUI(localData, localKeys) {
+  const area = document.getElementById('localRestoreArea');
+  const countEl = document.getElementById('localRestoreCount');
+  if (!area || !countEl) return;
+
+  const quoteCount = localKeys.filter(k => localData[k].status === 'quote').length;
+  const orderedCount = localKeys.filter(k => localData[k].status === 'ordered').length;
+  countEl.textContent = `見積提出済み: ${quoteCount}件、受注済み: ${orderedCount}件（合計${localKeys.length}件）`;
+  area.style.display = 'block';
+
+  document.getElementById('btnRestoreToServer')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnRestoreToServer');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 復元中...'; }
+    try {
+      const uploads = localKeys.map(key =>
+        fetch('/api/order-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, ...localData[key] }),
+        }).catch(() => {})
+      );
+      await Promise.all(uploads);
+      area.style.display = 'none';
+      toast(`${localKeys.length}件の受注状態をサーバーに復元しました`, 'success');
+    } catch(e) {
+      toast('復元に失敗しました。再度お試しください。', 'error');
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> サーバーに復元する'; }
+    }
+  });
+
+  document.getElementById('btnIgnoreLocal')?.addEventListener('click', () => {
+    area.style.display = 'none';
+  });
+}
+
+// ============================================================
 // SHARED SERVER SYNC (polling)
 // ============================================================
 let _pollTimer = null;
@@ -1663,33 +1746,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   await detectServer();
   await loadOrderStatusStore();
 
-  // サーバーが使えてlocalStorageにデータがある場合、サーバーに存在しないデータを復元アップロード
-  if (_useServer && Object.keys(orderStatusStore).length > 0) {
-    try {
-      const serverRes = await fetch('/api/order-status');
-      const serverJson = await serverRes.json();
-      const serverKeys = serverJson.ok ? Object.keys(serverJson.data || {}) : [];
-      // localStorageにあってサーバーにないキーを一括アップロード
-      const uploadPromises = [];
-      for (const [key, rec] of Object.entries(orderStatusStore)) {
-        if (!serverKeys.includes(key)) {
-          uploadPromises.push(
-            fetch('/api/order-status', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ key, ...rec }),
-            }).catch(() => {})
-          );
-        }
-      }
-      if (uploadPromises.length > 0) {
-        await Promise.all(uploadPromises);
-        console.log(`localStorageから${uploadPromises.length}件の受注状態をサーバーに復元しました`);
-      }
-    } catch(e) {
-      console.warn('サーバーへの受注状態復元に失敗:', e);
-    }
-  }
+  // localStorageに受注状態データがあるか確認し、サーバーに復元
+  await _restoreLocalToServer();
 
   // サーバーに保存済み CSV があれば自動ロード
   if (_useServer) {
