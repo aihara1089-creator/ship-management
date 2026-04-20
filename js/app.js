@@ -98,7 +98,14 @@ function getOrderStatus(row) {
 
 function getOrderStatusRecord(row) {
   const key = getVesselKey(row);
-  return orderStatusStore[key] || { status: 'other', quoteDate: '', orderedDate: '', note: '' };
+  const base = { status: 'other', quoteDate: '', orderedDate: '', note: '', notBoarded: false };
+  return orderStatusStore[key] ? { ...base, ...orderStatusStore[key] } : base;
+}
+
+// 非搭載フラグを取得するヘルパー
+function isNotBoarded(row) {
+  const rec = getOrderStatusRecord(row);
+  return !!rec.notBoarded;
 }
 
 function setOrderStatusRecord(row, record) {
@@ -307,7 +314,7 @@ function splitCSVLine(line) {
 // ============================================================
 function analyzeData(rows) {
   const now = TODAY.getTime();
-  let upcoming90=0, upcoming180=0, delivery90=0, quoteCount=0, orderedCount=0;
+  let upcoming90=0, upcoming180=0, delivery90=0, quoteCount=0, orderedCount=0, notBoardedCount=0;
   const typeCount={}, ownerCount={}, yearCount={};
 
   rows.forEach(r => {
@@ -325,6 +332,7 @@ function analyzeData(rows) {
     const os = getOrderStatus(r);
     if (os === 'quote')   quoteCount++;
     if (os === 'ordered') orderedCount++;
+    if (isNotBoarded(r)) notBoardedCount++;
     const vt = r.VESSEL_TYPE || '不明';
     typeCount[vt] = (typeCount[vt]||0)+1;
     const ow = r.OWNERSHIP_TYPE_BEFORE_DELIVERY || '不明';
@@ -335,7 +343,7 @@ function analyzeData(rows) {
     }
   });
 
-  return { upcoming90, upcoming180, delivery90, quoteCount, orderedCount, typeCount, ownerCount, yearCount };
+  return { upcoming90, upcoming180, delivery90, quoteCount, orderedCount, notBoardedCount, typeCount, ownerCount, yearCount };
 }
 
 // ============================================================
@@ -346,10 +354,12 @@ function renderKPI(rows, stats) {
   document.getElementById('kpiUpcomingVal').textContent = stats.upcoming90;
   document.getElementById('kpiDeliveryVal').textContent = stats.delivery90;
   document.getElementById('kpiTypesVal').textContent    = Object.keys(stats.typeCount).length;
-  const qEl = document.getElementById('kpiQuoteVal');
-  const oEl = document.getElementById('kpiOrderedVal');
-  if (qEl) qEl.textContent = stats.quoteCount;
-  if (oEl) oEl.textContent = stats.orderedCount;
+  const qEl  = document.getElementById('kpiQuoteVal');
+  const oEl  = document.getElementById('kpiOrderedVal');
+  const nbEl = document.getElementById('kpiNotBoardedVal');
+  if (qEl)  qEl.textContent  = stats.quoteCount;
+  if (oEl)  oEl.textContent  = stats.orderedCount;
+  if (nbEl) nbEl.textContent = stats.notBoardedCount;
   document.getElementById('totalCount').innerHTML = `<i class="fas fa-ship"></i> ${rows.length} 隻`;
   document.getElementById('lastUpdated').innerHTML = `<i class="fas fa-clock"></i> ${formatDate(TODAY)} 現在`;
 }
@@ -568,7 +578,7 @@ function renderGantt(rows) {
       cells += `<td class="gantt-cell month-cell${isToday?' month-today':''}" style="position:relative;">${todayLine}${barsHTML}</td>`;
     });
 
-    bodyRows += `<tr class="gantt-row${osRowCls}" data-name="${r.VESSEL_NAME||''}">${cells}</tr>`;
+    bodyRows += `<tr class="gantt-row${osRowCls}" data-name="${r.VESSEL_NAME||''}">${cells}</tr>`; // osRowCls already includes not-boarded
   });
 
   container.innerHTML = `
@@ -597,6 +607,7 @@ function renderOrderStatusPanel() {
     <table class="osp-table">
       <thead>
         <tr>
+          <th class="osp-nb-col">非搭載</th>
           <th>船名</th>
           <th>船種</th>
           <th>造船所</th>
@@ -644,9 +655,18 @@ function renderOspBody(rows) {
     const quoteDate   = rec.quoteDate   || '';
     const orderedDate = rec.orderedDate || '';
 
+    const nb  = rec.notBoarded === true;
     const ek = escAttr(key);
-    return `<tr class="osp-row${os==='ordered'?' osp-row-ordered':os==='quote'?' osp-row-quote':''}" data-key="${ek}">
-      <td class="osp-name">${r.VESSEL_NAME||'—'}</td>
+    const rowCls = nb ? 'osp-row osp-row-not-boarded'
+                     : `osp-row${os==='ordered'?' osp-row-ordered':os==='quote'?' osp-row-quote':''}`;
+    return `<tr class="${rowCls}" data-key="${ek}">
+      <td class="osp-nb-col">
+        <label class="osp-nb-label" title="非搭載にマーク">
+          <input type="checkbox" class="osp-nb-chk" data-key="${ek}" ${nb?'checked':''}>
+          <span class="osp-nb-icon">${nb ? '<i class="fas fa-ban"></i>' : ''}</span>
+        </label>
+      </td>
+      <td class="osp-name${nb?' nb-text':''}">${r.VESSEL_NAME||'—'}</td>
       <td>${r.VESSEL_TYPE||'—'}</td>
       <td>${r.BUILDER||'—'}</td>
       <td>${del ? formatDate(del) : '—'}</td>
@@ -681,6 +701,11 @@ function renderOspBody(rows) {
     countEl.innerHTML = `全 <strong>${rows.length}</strong> 隻 ／ 見積: <strong style="color:var(--purple-600)">${quoteCount}</strong> ／ 受注: <strong style="color:var(--teal-600)">${orderedCount}</strong>`;
   }
 
+  // Events: notBoarded checkbox → auto-save
+  tbody.querySelectorAll('.osp-nb-chk').forEach(chk => {
+    chk.addEventListener('change', () => ospSaveRow(chk.dataset.key));
+  });
+
   // Events: status select → auto-save
   tbody.querySelectorAll('.osp-status-select').forEach(sel => {
     sel.addEventListener('change', () => ospSaveRow(sel.dataset.key));
@@ -711,19 +736,33 @@ async function ospSaveRow(key) {
   const row = [...tbody.querySelectorAll('tr[data-key]')].find(tr => tr.dataset.key === key);
   if (!row) return;
 
-  const status    = row.querySelector('.osp-status-select').value;
-  const quoteDate = row.querySelector('.osp-quote-date').value;
+  const status      = row.querySelector('.osp-status-select').value;
+  const quoteDate   = row.querySelector('.osp-quote-date').value;
   const orderedDate = row.querySelector('.osp-ordered-date').value;
-  const note      = row.querySelector('.osp-note-input').value;
+  const note        = row.querySelector('.osp-note-input').value;
+  const nbChk       = row.querySelector('.osp-nb-chk');
+  const notBoarded  = nbChk ? nbChk.checked : false;
 
   // Find vessel row
   const vesselRow = allData.find(r => getVesselKey(r) === key);
   if (!vesselRow) return;
 
-  setOrderStatusRecord(vesselRow, { status, quoteDate, orderedDate, note });
+  setOrderStatusRecord(vesselRow, { status, quoteDate, orderedDate, note, notBoarded });
 
   // Update row highlight
-  row.className = `osp-row${status==='ordered'?' osp-row-ordered':status==='quote'?' osp-row-quote':''}`;
+  if (notBoarded) {
+    row.className = 'osp-row osp-row-not-boarded';
+    const nbIcon = row.querySelector('.osp-nb-icon');
+    if (nbIcon) nbIcon.innerHTML = '<i class="fas fa-ban"></i>';
+    const nameCell = row.querySelector('.osp-name');
+    if (nameCell) nameCell.classList.add('nb-text');
+  } else {
+    row.className = `osp-row${status==='ordered'?' osp-row-ordered':status==='quote'?' osp-row-quote':''}`;
+    const nbIcon = row.querySelector('.osp-nb-icon');
+    if (nbIcon) nbIcon.innerHTML = '';
+    const nameCell = row.querySelector('.osp-name');
+    if (nameCell) nameCell.classList.remove('nb-text');
+  }
 
   // Refresh KPI and gantt silently
   const stats = analyzeData(allData);
@@ -737,7 +776,7 @@ async function ospSaveRow(key) {
 // ============================================================
 function exportOrderStatus() {
   const rows = allData;
-  const header = ['船名','船種','造船所','建造番号','引渡予定','受注状態','見積提出日','受注日','メモ'];
+  const header = ['船名','船種','造船所','建造番号','引渡予定','非搭載','受注状態','見積提出日','受注日','メモ'];
   const lines = rows.map(r => {
     const rec = getOrderStatusRecord(r);
     const os  = getOrderStatus(r);
@@ -748,7 +787,8 @@ function exportOrderStatus() {
       r.BUILDER||'',
       r.BUILDERS_VESSEL_NUMBER||'',
       del ? formatDate(del) : '',
-      ORDER_STATUS_LABEL[os],
+      rec.notBoarded ? '非搭載' : '',
+      rec.notBoarded ? '—' : ORDER_STATUS_LABEL[os],
       rec.quoteDate||'',
       rec.orderedDate||'',
       rec.note||'',
@@ -978,31 +1018,38 @@ function buildTableRows(rows) {
   const cols = COLUMN_DEFS.filter(c => visibleCols.includes(c.key));
 
   return rows.map(r => {
+    const nb   = isNotBoarded(r);
     const next = getNextMilestoneDate(r);
     const days = next ? diffDays(next.date) : null;
     const st   = daysStatus(days);
-    let rowCls = st==='urgent' ? 'row-urgent' : st==='warning' ? 'row-warning' : '';
+    // 非搭載はグレーアウトを最優先，それ以外は絷急/注意
+    let rowCls = nb ? 'row-not-boarded' : (st==='urgent' ? 'row-urgent' : st==='warning' ? 'row-warning' : '');
 
     let statusBadge = '';
-    if (days===null) statusBadge = `<span class="badge badge-grey">未定</span>`;
-    else if (days<0) statusBadge = `<span class="badge badge-done"><i class="fas fa-check"></i> 完了</span>`;
-    else if (st==='urgent')  statusBadge = `<span class="badge badge-urgent"><i class="fas fa-exclamation"></i> 緊急</span>`;
-    else if (st==='warning') statusBadge = `<span class="badge badge-warning"><i class="fas fa-clock"></i> 注意</span>`;
-    else statusBadge = `<span class="badge badge-normal">予定</span>`;
+    if (nb) {
+      statusBadge = `<span class="badge badge-not-boarded"><i class="fas fa-ban"></i> 非搭載</span>`;
+    } else {
+      if (days===null) statusBadge = `<span class="badge badge-grey">未定</span>`;
+      else if (days<0) statusBadge = `<span class="badge badge-done"><i class="fas fa-check"></i> 完了</span>`;
+      else if (st==='urgent')  statusBadge = `<span class="badge badge-urgent"><i class="fas fa-exclamation"></i> 緊急</span>`;
+      else if (st==='warning') statusBadge = `<span class="badge badge-warning"><i class="fas fa-clock"></i> 注意</span>`;
+      else statusBadge = `<span class="badge badge-normal">予定</span>`;
+    }
 
     let nextCell = '—';
-    if (next) nextCell = `<span class="badge badge-${daysStatus(days)}">${next.label} ${daysLabel(days)}</span>`;
+    if (!nb && next) nextCell = `<span class="badge badge-${daysStatus(days)}">${next.label} ${daysLabel(days)}</span>`;
 
     const cells = cols.map(c => {
       if (c.key === '_orderStatus') {
-        const os  = getOrderStatus(r);
+        const os  = nb ? 'other' : getOrderStatus(r);
         const rec = getOrderStatusRecord(r);
         const key = getVesselKey(r);
         const ek  = escAttr(key);
 
         let badge = '';
-        if (os==='quote')   badge = `<span class="badge badge-quote"><i class="fas fa-file-alt"></i> 見積提出済み</span>`;
-        if (os==='ordered') badge = `<span class="badge badge-ordered"><i class="fas fa-handshake"></i> 受注済み</span>`;
+        if (!nb && os==='quote')   badge = `<span class="badge badge-quote"><i class="fas fa-file-alt"></i> 見積提出済み</span>`;
+        if (!nb && os==='ordered') badge = `<span class="badge badge-ordered"><i class="fas fa-handshake"></i> 受注済み</span>`;
+        if (nb) badge = `<span class="badge badge-not-boarded"><i class="fas fa-ban"></i> 非搭載</span>`;
 
         // Inline quick-edit dropdown（select 初期値は getOrderStatus 結果に合わせる）
         return `<td class="os-cell">
@@ -1285,6 +1332,14 @@ function openModal(r) {
     <div class="modal-section modal-os-section">
       <div class="modal-section-title"><i class="fas fa-edit"></i> 受注状態を編集</div>
       <div class="modal-os-form" id="modalOsForm">
+        <div class="modal-os-row modal-nb-row">
+          <label class="modal-os-label">&nbsp;</label>
+          <label class="modal-nb-check-label">
+            <input type="checkbox" id="modalNbChk" ${rec.notBoarded?'checked':''}>
+            <span class="modal-nb-icon"><i class="fas fa-ban"></i></span>
+            非搭載（未対象船）にマークする
+          </label>
+        </div>
         <div class="modal-os-row">
           <label class="modal-os-label">ステータス</label>
           <select class="modal-os-select" id="modalOsSelect">
@@ -1343,9 +1398,10 @@ function openModal(r) {
     const quoteDate   = document.getElementById('modalOsQuoteDate').value;
     const orderedDate = document.getElementById('modalOsOrderedDate').value;
     const note        = document.getElementById('modalOsNote').value;
+    const notBoarded  = document.getElementById('modalNbChk')?.checked || false;
     const vRow = allData.find(rr => getVesselKey(rr) === k);
     if (vRow) {
-      setOrderStatusRecord(vRow, { status, quoteDate, orderedDate, note });
+      setOrderStatusRecord(vRow, { status, quoteDate, orderedDate, note, notBoarded });
       const savedEl = document.getElementById('modalOsSaved');
       if (savedEl) { savedEl.classList.remove('hidden'); setTimeout(() => savedEl.classList.add('hidden'), 2000); }
       const stats2 = analyzeData(allData);

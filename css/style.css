@@ -730,6 +730,14 @@ body {
 .vessel-table tbody tr:hover { background: var(--blue-50); }
 .vessel-table tbody tr.row-urgent { background: #fff5f5; }
 .vessel-table tbody tr.row-warning { background: #fffbeb; }
+/* 非搭載行 — テーブル */
+.vessel-table tbody tr.row-not-boarded {
+  background: #f1f5f9;
+  opacity: .6;
+}
+.vessel-table tbody tr.row-not-boarded:hover { opacity: .8; background: #e2e8f0; }
+.vessel-table tbody tr.row-not-boarded td { color: var(--slate-400); text-decoration: line-through; }
+.vessel-table tbody tr.row-not-boarded .badge { opacity: .6; }
 .vessel-table tbody td { padding: 9px 12px; white-space: nowrap; color: var(--slate-700); }
 
 /* Status badges inside table */
@@ -748,8 +756,9 @@ body {
 .badge-normal  { background: var(--blue-100); color: var(--blue-700); }
 .badge-done    { background: var(--green-100); color: #15803d; }
 .badge-grey    { background: var(--slate-100); color: var(--slate-600); }
-.badge-quote   { background: var(--purple-100); color: var(--purple-600); }
-.badge-ordered { background: var(--teal-100); color: var(--teal-600); }
+.badge-quote       { background: var(--purple-100); color: var(--purple-600); }
+.badge-ordered     { background: var(--teal-100); color: var(--teal-600); }
+.badge-not-boarded { background: var(--slate-200); color: var(--slate-500); }
 
 /* Pagination */
 .pagination {
@@ -1063,6 +1072,30 @@ body {
 .osp-row-ordered { background: #f0fdfa; }
 .osp-row-quote:hover   { background: #f3e8ff !important; }
 .osp-row-ordered:hover { background: #ccfbf1 !important; }
+/* 非搭載行 — OSパネル */
+.osp-row-not-boarded {
+  background: #f1f5f9;
+  opacity: .55;
+}
+.osp-row-not-boarded:hover { opacity: .75; background: #e2e8f0 !important; }
+.osp-row-not-boarded td { color: var(--slate-400); }
+.osp-row-not-boarded .osp-name { color: var(--slate-400); text-decoration: line-through; }
+
+/* 非搭載チェックボックス列 */
+.osp-nb-col { width: 56px; text-align: center; }
+.osp-nb-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+.osp-nb-label input[type="checkbox"] { cursor: pointer; width: 15px; height: 15px; accent-color: var(--slate-500); }
+.osp-nb-icon { font-size: .75rem; color: var(--slate-400); min-height: 1em; }
+.osp-nb-icon i { color: var(--slate-500); }
+
+/* 非搭載テキスト（打ち消し線） */
+.nb-text { color: var(--slate-400) !important; text-decoration: line-through !important; }
 
 .osp-name { font-weight: 600; color: var(--slate-800); white-space: nowrap; }
 .osp-status-col { min-width: 130px; }
@@ -1113,6 +1146,12 @@ body {
 .gantt-row-quote   { background: #faf5ff; }
 .gantt-row-ordered td:first-child { border-left: 3px solid var(--teal-600); }
 .gantt-row-quote   td:first-child { border-left: 3px solid var(--purple-600); }
+/* 非搭載行 — ガント */
+.gantt-row-not-boarded {
+  background: #f1f5f9 !important;
+  opacity: .5;
+}
+.gantt-row-not-boarded td:first-child { border-left: 3px solid var(--slate-400) !important; }
 .gantt-os-date {
   display: inline-block;
   font-size: .68rem;
@@ -1177,6 +1216,19 @@ body {
 .modal-os-section { border-top: 2px dashed var(--slate-200); }
 .modal-os-section .modal-section-title { color: var(--teal-600); }
 .modal-os-form { display: flex; flex-direction: column; gap: 10px; }
+/* 非搭載チェック（モーダル内） */
+.modal-nb-row { background: var(--slate-50); border-radius: 8px; padding: 8px 12px; }
+.modal-nb-check-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: .88rem;
+  font-weight: 600;
+  color: var(--slate-600);
+}
+.modal-nb-check-label input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--slate-500); }
+.modal-nb-icon { color: var(--slate-500); font-size: .9rem; }
 .modal-os-row {
   display: flex;
   align-items: center;
