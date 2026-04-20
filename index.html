@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MOL 船舶管理リスト — 新造船 工事予定ダッシュボード</title>
+
+  <!-- Fonts & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css" />
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+
+  <!-- App CSS -->
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header class="site-header">
+  <div class="header-inner">
+    <div class="header-brand">
+      <div class="brand-icon"><i class="fas fa-anchor"></i></div>
+      <div class="brand-text">
+        <span class="brand-main">MOL 船舶管理リスト</span>
+        <span class="brand-sub">新造船 工事予定ダッシュボード</span>
+      </div>
+    </div>
+    <div class="header-meta" id="headerMeta">
+      <span class="meta-badge" id="totalCount"><i class="fas fa-ship"></i> — 隻</span>
+      <span class="meta-badge meta-date" id="lastUpdated"><i class="fas fa-clock"></i> 未読込</span>
+    </div>
+  </div>
+</header>
+
+<!-- ===== UPLOAD SECTION ===== -->
+<section class="upload-section" id="uploadSection">
+  <div class="upload-card" id="dropZone">
+    <div class="upload-icon"><i class="fas fa-file-csv"></i></div>
+    <h2>CSVファイルをインポート</h2>
+    <p>船舶管理リストのCSVをドラッグ＆ドロップ、または選択してください</p>
+    <label class="btn-upload" for="csvInput">
+      <i class="fas fa-folder-open"></i> ファイルを選択
+    </label>
+    <input type="file" id="csvInput" accept=".csv" hidden />
+    <p class="upload-hint">対応形式：CSV（UTF-8 / Shift-JIS）</p>
+    <div class="upload-user-row">
+      <label for="userName" style="font-size:.85rem;color:var(--slate-500);margin-right:6px;"><i class="fas fa-user"></i> あなたの名前（共有表示用）：</label>
+      <input type="text" id="userName" placeholder="例：田中" maxlength="20"
+        style="border:1px solid var(--slate-300);border-radius:6px;padding:4px 10px;font-size:.85rem;width:130px;" />
+    </div>
+    <button class="btn-sample" id="btnSample"><i class="fas fa-flask"></i> サンプルデータで試す</button>
+  </div>
+</section>
+
+<!-- ===== DASHBOARD ===== -->
+<main class="dashboard hidden" id="dashboard">
+
+  <!-- KPI Bar -->
+  <section class="kpi-bar">
+    <div class="kpi-card" id="kpiTotal">
+      <div class="kpi-icon blue"><i class="fas fa-ship"></i></div>
+      <div class="kpi-body">
+        <div class="kpi-value" id="kpiTotalVal">0</div>
+        <div class="kpi-label">総船舶数</div>
+      </div>
+    </div>
+    <div class="kpi-card" id="kpiUpcoming">
+      <div class="kpi-icon orange"><i class="fas fa-calendar-alt"></i></div>
+      <div class="kpi-body">
+        <div class="kpi-value" id="kpiUpcomingVal">0</div>
+        <div class="kpi-label">工事予定（90日以内）</div>
+      </div>
+    </div>
+    <div class="kpi-card" id="kpiDelivery">
+      <div class="kpi-icon green"><i class="fas fa-flag-checkered"></i></div>
+      <div class="kpi-body">
+        <div class="kpi-value" id="kpiDeliveryVal">0</div>
+        <div class="kpi-label">納期予定（90日以内）</div>
+      </div>
+    </div>
+    <div class="kpi-card" id="kpiTypes">
+      <div class="kpi-icon slate"><i class="fas fa-layer-group"></i></div>
+      <div class="kpi-body">
+        <div class="kpi-value" id="kpiTypesVal">0</div>
+        <div class="kpi-label">船種数</div>
+      </div>
+    </div>
+    <div class="kpi-card" id="kpiQuote">
+      <div class="kpi-icon purple"><i class="fas fa-file-alt"></i></div>
+      <div class="kpi-body">
+        <div class="kpi-value" id="kpiQuoteVal">0</div>
+        <div class="kpi-label">見積提出済み</div>
+      </div>
+    </div>
+    <div class="kpi-card" id="kpiOrdered">
+      <div class="kpi-icon teal"><i class="fas fa-handshake"></i></div>
+      <div class="kpi-body">
+        <div class="kpi-value" id="kpiOrderedVal">0</div>
+        <div class="kpi-label">受注済み</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Timeline Alert Banner -->
+  <section class="timeline-banner" id="timelineBanner"></section>
+
+  <!-- Charts Row -->
+  <section class="charts-row">
+    <div class="chart-card chart-wide">
+      <div class="chart-header">
+        <h3><i class="fas fa-chart-bar"></i> 船種別 隻数</h3>
+      </div>
+      <div class="chart-body">
+        <canvas id="chartVesselType"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <h3><i class="fas fa-chart-pie"></i> 所有形態</h3>
+      </div>
+      <div class="chart-body">
+        <canvas id="chartOwnership"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <h3><i class="fas fa-chart-line"></i> 年別 引渡予定</h3>
+      </div>
+      <div class="chart-body">
+        <canvas id="chartDeliveryYear"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- Timeline Gantt -->
+  <section class="gantt-section">
+    <div class="section-header">
+      <h2><i class="fas fa-stream"></i> 工事タイムライン
+        <span class="gantt-range-display" id="ganttRangeDisplay"></span>
+      </h2>
+      <div class="legend-row">
+        <span class="legend-item legend-keel"><span></span>起工</span>
+        <span class="legend-item legend-launch"><span></span>進水</span>
+        <span class="legend-item legend-trial"><span></span>試運転</span>
+        <span class="legend-item legend-delivery"><span></span>引渡</span>
+      </div>
+    </div>
+
+    <!-- 期間コントロールバー -->
+    <div class="gantt-ctrl-bar">
+      <div class="gantt-ctrl-quick">
+        <span class="gantt-ctrl-label"><i class="fas fa-calendar-alt"></i> 表示期間：</span>
+        <button class="gantt-quick-btn" data-months="3">3ヶ月</button>
+        <button class="gantt-quick-btn" data-months="6">6ヶ月</button>
+        <button class="gantt-quick-btn" data-months="12">12ヶ月</button>
+        <button class="gantt-quick-btn" data-months="24">24ヶ月</button>
+        <button class="gantt-quick-btn" data-months="36">36ヶ月</button>
+        <button class="gantt-quick-btn active" data-months="0">全期間</button>
+      </div>
+      <div class="gantt-ctrl-custom">
+        <span class="gantt-ctrl-label">カスタム：</span>
+        <input type="month" id="ganttFrom" class="gantt-month-input" title="開始年月" />
+        <span class="gantt-ctrl-sep">〜</span>
+        <input type="month" id="ganttTo"   class="gantt-month-input" title="終了年月" />
+        <button class="gantt-apply-btn" id="ganttApply">
+          <i class="fas fa-check"></i> 適用
+        </button>
+      </div>
+    </div>
+
+    <div class="gantt-container" id="ganttContainer">
+      <p class="empty-msg">データがありません</p>
+    </div>
+  </section>
+
+  <!-- 受注状態管理パネル -->
+  <section class="osp-section">
+    <div class="osp-header">
+      <div class="osp-header-left">
+        <h2><i class="fas fa-handshake"></i> 受注状態管理
+          <span class="osp-header-sub">船ごとに見積提出済み・受注済みを設定できます（ブラウザに自動保存）</span>
+        </h2>
+      </div>
+      <button class="btn-action osp-toggle-btn" id="ospToggleBtn">
+        <i class="fas fa-list-check"></i> 受注状態を管理する
+      </button>
+    </div>
+    <div id="orderStatusPanel" class="hidden"></div>
+  </section>
+
+  <!-- Controls -->
+  <section class="controls-bar">
+    <div class="search-box">
+      <i class="fas fa-search"></i>
+      <input type="text" id="searchInput" placeholder="船名・建造番号・造船所で検索…" />
+    </div>
+    <div class="filter-group">
+      <!-- 船種 -->
+      <div class="mdd-wrap" id="mddType">
+        <button class="mdd-btn" type="button">
+          <span class="mdd-label" id="mddTypeLabel">船種</span>
+          <i class="fas fa-chevron-down mdd-arrow"></i>
+        </button>
+        <div class="mdd-dropdown hidden" id="mddTypeMenu">
+          <div class="mdd-search-wrap"><i class="fas fa-search"></i><input type="text" class="mdd-search" placeholder="絞り込み…" autocomplete="off" /></div>
+          <label class="mdd-item mdd-all"><input type="checkbox" value="__all__" checked /> すべて選択</label>
+          <div class="mdd-list" id="mddTypeList"></div>
+        </div>
+      </div>
+      <!-- 所有形態 -->
+      <div class="mdd-wrap" id="mddOwnership">
+        <button class="mdd-btn" type="button">
+          <span class="mdd-label" id="mddOwnershipLabel">所有形態</span>
+          <i class="fas fa-chevron-down mdd-arrow"></i>
+        </button>
+        <div class="mdd-dropdown hidden" id="mddOwnershipMenu">
+          <label class="mdd-item mdd-all"><input type="checkbox" value="__all__" checked /> すべて選択</label>
+          <div class="mdd-list" id="mddOwnershipList"></div>
+        </div>
+      </div>
+      <!-- 納期年 -->
+      <div class="mdd-wrap" id="mddYear">
+        <button class="mdd-btn" type="button">
+          <span class="mdd-label" id="mddYearLabel">納期年</span>
+          <i class="fas fa-chevron-down mdd-arrow"></i>
+        </button>
+        <div class="mdd-dropdown hidden" id="mddYearMenu">
+          <label class="mdd-item mdd-all"><input type="checkbox" value="__all__" checked /> すべて選択</label>
+          <div class="mdd-list" id="mddYearList"></div>
+        </div>
+      </div>
+      <!-- ステータス -->
+      <div class="mdd-wrap" id="mddStatus">
+        <button class="mdd-btn" type="button">
+          <span class="mdd-label" id="mddStatusLabel">ステータス</span>
+          <i class="fas fa-chevron-down mdd-arrow"></i>
+        </button>
+        <div class="mdd-dropdown hidden" id="mddStatusMenu">
+          <label class="mdd-item mdd-all"><input type="checkbox" value="__all__" checked /> すべて（全件）</label>
+          <div class="mdd-list" id="mddStatusList">
+            <label class="mdd-item"><input type="checkbox" value="upcoming90"  /> 工事予定 90日以内</label>
+            <label class="mdd-item"><input type="checkbox" value="upcoming180" /> 工事予定 180日以内</label>
+            <label class="mdd-item"><input type="checkbox" value="delivery90"  /> 引渡 90日以内</label>
+          </div>
+        </div>
+      </div>
+      <!-- 受注状態 -->
+      <div class="mdd-wrap" id="mddOrderStatus">
+        <button class="mdd-btn" type="button">
+          <span class="mdd-label" id="mddOrderStatusLabel">受注状態</span>
+          <i class="fas fa-chevron-down mdd-arrow"></i>
+        </button>
+        <div class="mdd-dropdown hidden" id="mddOrderStatusMenu">
+          <label class="mdd-item mdd-all"><input type="checkbox" value="__all__" checked /> すべて（全件）</label>
+          <div class="mdd-list" id="mddOrderStatusList">
+            <label class="mdd-item"><input type="checkbox" value="quote"   /> <span class="badge badge-quote" style="font-size:.75rem"><i class="fas fa-file-alt"></i> 見積提出済み</span></label>
+            <label class="mdd-item"><input type="checkbox" value="ordered" /> <span class="badge badge-ordered" style="font-size:.75rem"><i class="fas fa-handshake"></i> 受注済み</span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="action-group">
+      <button class="btn-action" id="btnExport"><i class="fas fa-download"></i> エクスポート</button>
+      <button class="btn-action btn-secondary" id="btnReset"><i class="fas fa-redo"></i> リセット</button>
+    </div>
+  </section>
+
+  <!-- Active filter chips bar -->
+  <div class="active-filters-bar hidden" id="activeFiltersBar">
+    <span class="af-label"><i class="fas fa-filter"></i> 絞込中：</span>
+    <div class="af-chips" id="afChips"></div>
+    <button class="af-clear" id="afClearAll"><i class="fas fa-times"></i> すべて解除</button>
+  </div>
+
+  <!-- Table -->
+  <section class="table-section">
+    <div class="table-info-bar">
+      <span id="tableCount">0 件表示</span>
+      <div class="table-info-right">
+        <label class="page-size-label">表示件数：
+          <select id="pageSizeSelect" class="page-size-select">
+            <option value="25">25件</option>
+            <option value="50">50件</option>
+            <option value="100">100件</option>
+            <option value="200">200件</option>
+            <option value="all">全件表示</option>
+          </select>
+        </label>
+        <div class="col-toggle-wrap">
+          <button class="btn-toggle-col" id="btnColToggle"><i class="fas fa-columns"></i> 列表示</button>
+          <div class="col-toggle-menu hidden" id="colToggleMenu"></div>
+        </div>
+      </div>
+    </div>
+    <div class="table-wrapper">
+      <table class="vessel-table" id="vesselTable">
+        <thead id="tableHead"></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+    <div class="pagination" id="pagination"></div>
+  </section>
+
+  <!-- Back to upload -->
+  <div class="back-bar">
+    <button class="btn-back" id="btnBack"><i class="fas fa-arrow-left"></i> 別ファイルを読み込む</button>
+  </div>
+</main>
+
+<!-- ===== DETAIL MODAL ===== -->
+<div class="modal-overlay hidden" id="modalOverlay">
+  <div class="modal-card" id="modalCard">
+    <button class="modal-close" id="modalClose"><i class="fas fa-times"></i></button>
+    <div class="modal-header" id="modalHeader"></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- ===== TOAST ===== -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- App JS -->
+<script src="js/app.js"></script>
+</body>
+</html>
