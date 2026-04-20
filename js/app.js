@@ -31,18 +31,46 @@ async function detectServer() {
 }
 
 async function loadOrderStatusStore() {
+  // まずlocalStorageから読み込む（常にベースラインとして使用）
+  let localData = {};
+  try {
+    const raw = localStorage.getItem('molShipOrderStatus_v1');
+    if (raw) localData = JSON.parse(raw);
+  } catch(e) { localData = {}; }
+
   if (_useServer) {
     try {
       const r = await fetch('/api/order-status');
       const j = await r.json();
-      if (j.ok) { orderStatusStore = j.data; return; }
-    } catch(e) {}
+      if (j.ok && j.data) {
+        const serverData = j.data;
+        // マージ: localStorageとサーバーデータを統合
+        // updatedAtが新しい方を採用し、サーバーにないデータはlocalStorageから補完
+        const merged = { ...localData };
+        for (const [key, serverRec] of Object.entries(serverData)) {
+          if (!merged[key]) {
+            // localStorageにないキーはサーバーから取得
+            merged[key] = serverRec;
+          } else {
+            // 両方にある場合はupdatedAtが新しい方を使用
+            const localUpdated = new Date(merged[key].updatedAt || 0).getTime();
+            const serverUpdated = new Date(serverRec.updatedAt || 0).getTime();
+            if (serverUpdated > localUpdated) {
+              merged[key] = serverRec;
+            }
+          }
+        }
+        orderStatusStore = merged;
+        // マージした結果をlocalStorageにも保存しておく（サーバーが落ちたとき用）
+        _saveLocalStorage();
+        return;
+      }
+    } catch(e) {
+      console.warn('サーバーからの受注状態読み込みに失敗。localStorageを使用します:', e);
+    }
   }
-  // フォールバック: localStorage
-  try {
-    const raw = localStorage.getItem('molShipOrderStatus_v1');
-    if (raw) orderStatusStore = JSON.parse(raw);
-  } catch(e) { orderStatusStore = {}; }
+  // サーバーが使えない場合はlocalStorageのみ使用
+  orderStatusStore = localData;
 }
 
 function _saveLocalStorage() {
@@ -52,6 +80,8 @@ function _saveLocalStorage() {
 async function saveOrderStatusRecord(key, record) {
   if (!key) return;
   orderStatusStore[key] = { ...record };
+  // 常にlocalStorageに保存（サーバーが落ちてもデータを保持）
+  _saveLocalStorage();
   if (_useServer) {
     try {
       await fetch('/api/order-status', {
@@ -59,10 +89,11 @@ async function saveOrderStatusRecord(key, record) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, ...record }),
       });
-      return; // サーバー保存成功
-    } catch(e) {}
+      // サーバー保存成功（localStorageにはすでに保存済み）
+    } catch(e) {
+      console.warn('サーバーへの受注状態保存に失敗。localStorageに保存済みです:', e);
+    }
   }
-  _saveLocalStorage(); // フォールバック
 }
 
 function getVesselKey(row) {
@@ -1453,13 +1484,35 @@ function exportCSV() {
 let _pollTimer = null;
 let _lastOrderStatusUpdatedAt = '';  // サーバー側の最終更新時刻を追跡
 
+// サーバーとlocalStorageをマージするヘルパー
+function _mergeServerData(serverData) {
+  if (!serverData || typeof serverData !== 'object') return;
+  let changed = false;
+  for (const [key, serverRec] of Object.entries(serverData)) {
+    if (!orderStatusStore[key]) {
+      orderStatusStore[key] = serverRec;
+      changed = true;
+    } else {
+      // updatedAtが新しい方を使用
+      const localUpdated = new Date(orderStatusStore[key].updatedAt || 0).getTime();
+      const serverUpdated = new Date(serverRec.updatedAt || 0).getTime();
+      if (serverUpdated > localUpdated) {
+        orderStatusStore[key] = serverRec;
+        changed = true;
+      }
+    }
+  }
+  if (changed) _saveLocalStorage(); // マージ結果をlocalStorageに反映
+  return changed;
+}
+
 async function syncFromServer() {
   if (!_useServer || allData.length === 0) return;
   try {
     const r = await fetch('/api/order-status');
     const j = await r.json();
-    if (j.ok) {
-      orderStatusStore = j.data;
+    if (j.ok && j.data) {
+      _mergeServerData(j.data);
       // 画面を静かに更新
       const stats = analyzeData(allData);
       renderKPI(allData, stats);
@@ -1476,12 +1529,12 @@ function startPolling() {
     try {
       const r = await fetch('/api/order-status');
       const j = await r.json();
-      if (j.ok) {
-        // 変更があった場合のみ更新
-        const newData = JSON.stringify(j.data);
+      if (j.ok && j.data) {
+        // マージして変更があった場合のみ更新
         const oldData = JSON.stringify(orderStatusStore);
-        if (newData !== oldData) {
-          orderStatusStore = j.data;
+        const changed = _mergeServerData(j.data);
+        const newData = JSON.stringify(orderStatusStore);
+        if (changed || newData !== oldData) {
           const stats = analyzeData(allData);
           renderKPI(allData, stats);
           renderOspBody(allData);
@@ -1609,6 +1662,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   // サーバー検出 → 受注状態読み込み
   await detectServer();
   await loadOrderStatusStore();
+
+  // サーバーが使えてlocalStorageにデータがある場合、サーバーに存在しないデータを復元アップロード
+  if (_useServer && Object.keys(orderStatusStore).length > 0) {
+    try {
+      const serverRes = await fetch('/api/order-status');
+      const serverJson = await serverRes.json();
+      const serverKeys = serverJson.ok ? Object.keys(serverJson.data || {}) : [];
+      // localStorageにあってサーバーにないキーを一括アップロード
+      const uploadPromises = [];
+      for (const [key, rec] of Object.entries(orderStatusStore)) {
+        if (!serverKeys.includes(key)) {
+          uploadPromises.push(
+            fetch('/api/order-status', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key, ...rec }),
+            }).catch(() => {})
+          );
+        }
+      }
+      if (uploadPromises.length > 0) {
+        await Promise.all(uploadPromises);
+        console.log(`localStorageから${uploadPromises.length}件の受注状態をサーバーに復元しました`);
+      }
+    } catch(e) {
+      console.warn('サーバーへの受注状態復元に失敗:', e);
+    }
+  }
 
   // サーバーに保存済み CSV があれば自動ロード
   if (_useServer) {
