@@ -145,11 +145,13 @@ function isNotBoarded(row) {
   return !!rec.notBoarded;
 }
 
-function setOrderStatusRecord(row, record) {
+async function setOrderStatusRecord(row, record) {
   const key = getVesselKey(row);
   if (!key) return;
-  // 非同期保存（UI をブロックしない）
-  saveOrderStatusRecord(key, record);
+  // メモリに即時反映してからlocalStorage/サーバーに保存
+  orderStatusStore[key] = { ...record, updatedAt: new Date().toISOString() };
+  _saveLocalStorage();
+  await saveOrderStatusRecord(key, orderStatusStore[key]);
 }
 
 const ORDER_STATUS_LABEL = { quote: '見積提出済み', ordered: '受注済み', other: '—' };
@@ -784,9 +786,14 @@ async function ospSaveRow(key) {
   const vesselRow = allData.find(r => getVesselKey(r) === key);
   if (!vesselRow) return;
 
-  setOrderStatusRecord(vesselRow, { status, quoteDate, orderedDate, note, notBoarded });
+  // メモリに即時反映（await前に反映しておくことで画面と不整合にならない）
+  const key2 = getVesselKey(vesselRow);
+  if (key2) {
+    orderStatusStore[key2] = { status, quoteDate, orderedDate, note, notBoarded, updatedAt: new Date().toISOString() };
+    _saveLocalStorage();
+  }
 
-  // Update row highlight
+  // Update OSP row highlight immediately
   if (notBoarded) {
     row.className = 'osp-row osp-row-not-boarded';
     const nbIcon = row.querySelector('.osp-nb-icon');
@@ -801,7 +808,16 @@ async function ospSaveRow(key) {
     if (nameCell) nameCell.classList.remove('nb-text');
   }
 
-  // Refresh KPI and gantt silently
+  // サーバーに非同期保存（UIをブロックしない）
+  if (_useServer) {
+    fetch('/api/order-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, status, quoteDate, orderedDate, note, notBoarded, updatedAt: orderStatusStore[key2]?.updatedAt }),
+    }).catch(e => console.warn('サーバー保存失敗（localStorageには保存済み）:', e));
+  }
+
+  // Refresh KPI / gantt / table（メモリ更新後なので正しい値で描画される）
   const stats = analyzeData(allData);
   renderKPI(allData, stats);
   if (allData.length) renderGantt(filtered.length ? filtered : allData);
@@ -1438,7 +1454,16 @@ function openModal(r) {
     const notBoarded  = document.getElementById('modalNbChk')?.checked || false;
     const vRow = allData.find(rr => getVesselKey(rr) === k);
     if (vRow) {
-      setOrderStatusRecord(vRow, { status, quoteDate, orderedDate, note, notBoarded });
+      // メモリに即時反映（awaitより前に書いておく）
+      orderStatusStore[k] = { status, quoteDate, orderedDate, note, notBoarded, updatedAt: new Date().toISOString() };
+      _saveLocalStorage();
+      if (_useServer) {
+        fetch('/api/order-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: k, ...orderStatusStore[k] }),
+        }).catch(e => console.warn('モーダル保存失敗（localStorageには保存済み）:', e));
+      }
       const savedEl = document.getElementById('modalOsSaved');
       if (savedEl) { savedEl.classList.remove('hidden'); setTimeout(() => savedEl.classList.add('hidden'), 2000); }
       const stats2 = analyzeData(allData);
