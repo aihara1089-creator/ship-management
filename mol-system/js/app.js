@@ -16,12 +16,12 @@ const DAYS_90  = 90  * 86400000;
 const DAYS_180 = 180 * 86400000;
 
 // ============================================================
-// ORDER STATUS — サーバー共有ストア (API 経由)
+// ORDER STATUS — localStorage を正とする設計
+// Shape: { [vesselUID]: { status, quoteDate, orderedDate, note, notBoarded } }
 // ============================================================
-// Shape: { [vesselUID]: { status, quoteDate, orderedDate, note, updatedAt } }
 let orderStatusStore = {};
 
-// サーバーが使えるかどうかを初回チェック
+// サーバーが使えるかどうかを初回チェック（write-only用）
 let _useServer = false;
 async function detectServer() {
   try {
@@ -30,78 +30,35 @@ async function detectServer() {
   } catch(e) { _useServer = false; }
 }
 
-// 2つのストアをupdatedAtで比較マージするヘルパー（破壊的でない）
-// ルール: updatedAtが新しい方を採用。両方ともupdatedAtなし→既存を優先
-function _mergeStores(base, ...sources) {
-  const result = { ...base };
-  for (const src of sources) {
-    if (!src || typeof src !== 'object') continue;
-    for (const [key, rec] of Object.entries(src)) {
-      if (!rec) continue;
-      if (!result[key]) {
-        result[key] = rec;
-      } else {
-        const baseTime = result[key].updatedAt ? new Date(result[key].updatedAt).getTime() : -1;
-        const srcTime  = rec.updatedAt         ? new Date(rec.updatedAt).getTime()          : -1;
-        // srcの方が明確に新しい場合だけ上書き（同じ・不明なら既存を保持）
-        if (srcTime > baseTime) result[key] = rec;
-      }
-    }
-  }
-  return result;
-}
-
-async function loadOrderStatusStore() {
-  // 1. 現在メモリ上にあるデータを退避（絶対に失わない）
-  const memData = { ...orderStatusStore };
-
-  // 2. localStorageから読み込む
-  let localData = {};
+// localStorage から読み込む（これだけが正のデータソース）
+function loadOrderStatusStore() {
   try {
     const raw = localStorage.getItem('molShipOrderStatus_v1');
-    if (raw) localData = JSON.parse(raw);
-  } catch(e) { localData = {}; }
-
-  // 3. サーバーから読み込む
-  let serverData = {};
-  if (_useServer) {
-    try {
-      const r = await fetch('/api/order-status', { signal: AbortSignal.timeout(3000) });
-      const j = await r.json();
-      if (j.ok && j.data) serverData = j.data;
-    } catch(e) {
-      console.warn('サーバーからの受注状態読み込みに失敗。メモリ+localStorageを使用:', e);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // 既存メモリと統合（メモリの方が新しければ維持）
+      orderStatusStore = { ...parsed, ...orderStatusStore };
     }
-  }
-
-  // 4. 全ソースをマージ（メモリ・localStorage・サーバーの最新を保持）
-  orderStatusStore = _mergeStores({}, memData, localData, serverData);
-
-  // 5. マージ結果をlocalStorageに保存（サーバーが落ちても次回復元できる）
-  _saveLocalStorage();
+  } catch(e) { /* 読み込み失敗時はメモリのまま */ }
 }
 
+// localStorage に書き込む（全保存操作の共通出口）
 function _saveLocalStorage() {
   try { localStorage.setItem('molShipOrderStatus_v1', JSON.stringify(orderStatusStore)); } catch(e) {}
 }
 
-async function saveOrderStatusRecord(key, record) {
+// 1件保存：メモリ → localStorage → サーバー(fire-and-forget)
+function saveOrderStatusRecord(key, record) {
   if (!key) return;
-  // updatedAtを必ずセット（マージ時に「新しいデータ」と正しく判定されるよう）
-  const recWithTs = { ...record, updatedAt: record.updatedAt || new Date().toISOString() };
-  orderStatusStore[key] = recWithTs;
-  // 常にlocalStorageに保存（サーバーが落ちてもデータを保持）
+  orderStatusStore[key] = { ...record };
   _saveLocalStorage();
+  // サーバーにはバックグラウンドで送るだけ（失敗しても影響なし）
   if (_useServer) {
-    try {
-      await fetch('/api/order-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, ...recWithTs }),
-      });
-    } catch(e) {
-      console.warn('サーバーへの受注状態保存に失敗。localStorageに保存済みです:', e);
-    }
+    fetch('/api/order-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, ...record }),
+    }).catch(() => {});
   }
 }
 
@@ -148,14 +105,10 @@ function isNotBoarded(row) {
   return !!rec.notBoarded;
 }
 
-async function setOrderStatusRecord(row, record) {
+function setOrderStatusRecord(row, record) {
   const key = getVesselKey(row);
   if (!key) return;
-  // updatedAtを必ずセットしてからメモリ・localStorage・サーバーに保存
-  const recWithTs = { ...record, updatedAt: new Date().toISOString() };
-  orderStatusStore[key] = recWithTs;
-  _saveLocalStorage();
-  await saveOrderStatusRecord(key, recWithTs);
+  saveOrderStatusRecord(key, record);
 }
 
 const ORDER_STATUS_LABEL = { quote: '見積提出済み', ordered: '受注済み', other: '—' };
@@ -772,10 +725,9 @@ function renderOspBody(rows) {
   });
 }
 
-async function ospSaveRow(key) {
+function ospSaveRow(key) {
   const tbody = document.getElementById('ospBody');
   if (!tbody) return;
-  // data-key はエスケープ済みなので querySelectorAll + find で安全に照合
   const row = [...tbody.querySelectorAll('tr[data-key]')].find(tr => tr.dataset.key === key);
   if (!row) return;
 
@@ -786,18 +738,10 @@ async function ospSaveRow(key) {
   const nbChk       = row.querySelector('.osp-nb-chk');
   const notBoarded  = nbChk ? nbChk.checked : false;
 
-  // Find vessel row
-  const vesselRow = allData.find(r => getVesselKey(r) === key);
-  if (!vesselRow) return;
+  // ① メモリ＋localStorageに即時保存（これが唯一の正のデータソース）
+  saveOrderStatusRecord(key, { status, quoteDate, orderedDate, note, notBoarded });
 
-  // メモリに即時反映（await前に反映しておくことで画面と不整合にならない）
-  const key2 = getVesselKey(vesselRow);
-  if (key2) {
-    orderStatusStore[key2] = { status, quoteDate, orderedDate, note, notBoarded, updatedAt: new Date().toISOString() };
-    _saveLocalStorage();
-  }
-
-  // Update OSP row highlight immediately
+  // ② OSPパネルの行見た目を即時更新
   if (notBoarded) {
     row.className = 'osp-row osp-row-not-boarded';
     const nbIcon = row.querySelector('.osp-nb-icon');
@@ -812,16 +756,7 @@ async function ospSaveRow(key) {
     if (nameCell) nameCell.classList.remove('nb-text');
   }
 
-  // サーバーに非同期保存（UIをブロックしない）
-  if (_useServer) {
-    fetch('/api/order-status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, status, quoteDate, orderedDate, note, notBoarded, updatedAt: orderStatusStore[key2]?.updatedAt }),
-    }).catch(e => console.warn('サーバー保存失敗（localStorageには保存済み）:', e));
-  }
-
-  // Refresh KPI / gantt / table（メモリ更新後なので正しい値で描画される）
+  // ③ KPI・ガント・テーブルを再描画
   const stats = analyzeData(allData);
   renderKPI(allData, stats);
   if (allData.length) renderGantt(filtered.length ? filtered : allData);
@@ -1449,25 +1384,16 @@ function openModal(r) {
   document.body.style.overflow = 'hidden';
 
   // Modal save button
-  document.getElementById('modalOsSave').addEventListener('click', async () => {
+  document.getElementById('modalOsSave').addEventListener('click', () => {
     const k = document.getElementById('modalOsSave').dataset.key;
     const status      = document.getElementById('modalOsSelect').value;
     const quoteDate   = document.getElementById('modalOsQuoteDate').value;
     const orderedDate = document.getElementById('modalOsOrderedDate').value;
     const note        = document.getElementById('modalOsNote').value;
     const notBoarded  = document.getElementById('modalNbChk')?.checked || false;
-    const vRow = allData.find(rr => getVesselKey(rr) === k);
-    if (vRow) {
-      // メモリに即時反映（awaitより前に書いておく）
-      orderStatusStore[k] = { status, quoteDate, orderedDate, note, notBoarded, updatedAt: new Date().toISOString() };
-      _saveLocalStorage();
-      if (_useServer) {
-        fetch('/api/order-status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: k, ...orderStatusStore[k] }),
-        }).catch(e => console.warn('モーダル保存失敗（localStorageには保存済み）:', e));
-      }
+    if (k) {
+      // メモリ＋localStorage＋サーバー(fire-and-forget)に保存
+      saveOrderStatusRecord(k, { status, quoteDate, orderedDate, note, notBoarded });
       const savedEl = document.getElementById('modalOsSaved');
       if (savedEl) { savedEl.classList.remove('hidden'); setTimeout(() => savedEl.classList.add('hidden'), 2000); }
       const stats2 = analyzeData(allData);
@@ -1597,71 +1523,13 @@ function _showLocalRestoreUI(localData, localKeys) {
 }
 
 // ============================================================
-// SHARED SERVER SYNC (polling)
+// SHARED SERVER SYNC
+// ポーリングは廃止（サーバーが揮発してlocalStorageを上書きする原因だったため）
+// サーバーへはwrite-onlyで送るだけ。読み込みはlocalStorageのみ。
 // ============================================================
-let _pollTimer = null;
-let _lastOrderStatusUpdatedAt = '';  // サーバー側の最終更新時刻を追跡
-
-// サーバーとlocalStorageをマージするヘルパー
-function _mergeServerData(serverData) {
-  if (!serverData || typeof serverData !== 'object') return false;
-  // サーバーデータが空（{}）の場合はマージしない（サーバー再起動対策）
-  if (Object.keys(serverData).length === 0) return false;
-  const before = JSON.stringify(orderStatusStore);
-  orderStatusStore = _mergeStores(orderStatusStore, serverData);
-  const changed = JSON.stringify(orderStatusStore) !== before;
-  if (changed) _saveLocalStorage();
-  return changed;
-}
-
-async function syncFromServer() {
-  if (!_useServer || allData.length === 0) return;
-  try {
-    const r = await fetch('/api/order-status');
-    const j = await r.json();
-    if (j.ok && j.data) {
-      _mergeServerData(j.data);
-      // 画面を静かに更新
-      const stats = analyzeData(allData);
-      renderKPI(allData, stats);
-      renderOspBody(allData);
-      renderTable();
-    }
-  } catch(e) {}
-}
-
-function startPolling() {
-  if (_pollTimer) return; // 二重起動防止
-  _pollTimer = setInterval(async () => {
-    if (!_useServer || allData.length === 0) return;
-    try {
-      const r = await fetch('/api/order-status');
-      const j = await r.json();
-      if (j.ok && j.data) {
-        // マージして変更があった場合のみ更新
-        const oldData = JSON.stringify(orderStatusStore);
-        const changed = _mergeServerData(j.data);
-        const newData = JSON.stringify(orderStatusStore);
-        if (changed || newData !== oldData) {
-          const stats = analyzeData(allData);
-          renderKPI(allData, stats);
-          renderOspBody(allData);
-          renderTable();
-          // 小さな通知（トーストは出さず、バッジだけ点滅）
-          const badge = document.getElementById('sharedModeBadge');
-          if (badge) {
-            badge.innerHTML = '<i class="fas fa-sync-alt"></i> 更新されました';
-            setTimeout(() => { badge.innerHTML = '<i class="fas fa-users"></i> 共有モード'; }, 3000);
-          }
-        }
-      }
-    } catch(e) {}
-  }, 30000); // 30秒ごと
-}
-
-function stopPolling() {
-  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
-}
+function startPolling() { /* 無効化 */ }
+function stopPolling()  { /* 無効化 */ }
+async function syncFromServer() { /* 無効化 */ }
 
 // ============================================================
 // SAMPLE DATA
@@ -1701,7 +1569,7 @@ async function loadData(csvText, { skipServerSave = false } = {}) {
   try {
     // 最新の受注状態を読み直す（メモリ・localStorage・サーバーを全マージ）
     // ※ loadOrderStatusStore内でメモリ上の既存データも保持するので消えない
-    await loadOrderStatusStore();
+    loadOrderStatusStore();
 
     allData = parseCSV(csvText);
     if (allData.length === 0) { toast('データが見つかりませんでした','error'); return; }
@@ -1751,8 +1619,6 @@ async function loadData(csvText, { skipServerSave = false } = {}) {
 
     toast(`${allData.length} 隻のデータを読み込みました`, 'success');
 
-    // 共有サーバー使用時はポーリング開始
-    if (_useServer) startPolling();
   } catch(e) {
     console.error(e);
     toast('CSVの読み込みに失敗しました: ' + e.message, 'error');
@@ -1768,9 +1634,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const userNameEl = document.getElementById('userName');
   if (savedName && userNameEl) userNameEl.value = savedName;
 
-  // サーバー検出 → 受注状態読み込み
+  // サーバー検出 → 受注状態読み込み（localStorageのみ・同期）
   await detectServer();
-  await loadOrderStatusStore();
+  loadOrderStatusStore();
 
   // localStorageに受注状態データがあるか確認し、サーバーに復元
   await _restoreLocalToServer();
@@ -1788,8 +1654,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // サーバーにCSVがあれば自動的にロード（共有モード）
         await loadData(info.csv, { skipServerSave: true });
         toast(`サーバーのCSVを自動ロードしました（最終更新: ${dtStr} by ${info.updatedBy || '不明'}）`, 'success');
-        // 30秒ごとに受注状態を自動同期
-        startPolling();
       } else {
         // CSV未保存 → アップロード画面にヒントを表示
         const hint = document.querySelector('.upload-hint');
@@ -1812,9 +1676,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       badge.innerHTML = '<i class="fas fa-users"></i> 共有モード';
       badge.addEventListener('click', async () => {
         badge.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 同期中...';
-        await syncFromServer();
+        syncFromServer();
         badge.innerHTML = '<i class="fas fa-users"></i> 共有モード';
-        toast('受注状態を同期しました', 'success');
+        toast('受注状態を同期しました（localStorageから）', 'success');
       });
       meta.insertBefore(badge, meta.firstChild);
     }
@@ -1956,9 +1820,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         : '<i class="fas fa-list-check"></i> 受注状態を管理する';
     });
   }
-
-  // ポーリング開始（CSVロード後に呼ばれる場合もあるので再確認）
-  if (_useServer && allData.length > 0) startPolling();
 
   // Modal close
   document.getElementById('modalClose').addEventListener('click', closeModal);
