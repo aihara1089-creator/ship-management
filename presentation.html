@@ -1,0 +1,1477 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>船舶燃費・速力計算 勉強会 | TSOL-AIHARA</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+:root {
+    --navy:   #0d2137;
+    --blue:   #1a4a7a;
+    --cyan:   #00aaff;
+    --light:  #e8f4fd;
+    --white:  #ffffff;
+    --green:  #00c48c;
+    --yellow: #ffc107;
+    --red:    #ff5252;
+    --gray:   #64748b;
+}
+
+html, body { width:100%; height:100%; overflow:hidden; font-family:'Noto Sans JP', sans-serif; background:#000; }
+
+/* ============ スライドコンテナ ============ */
+.deck {
+    width:100vw; height:100vh;
+    position:relative;
+    overflow:hidden;
+}
+
+.slide {
+    position:absolute;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    opacity:0;
+    pointer-events:none;
+    transition: opacity 0.6s ease, transform 0.6s ease;
+    transform: translateX(60px);
+    overflow:hidden;
+}
+
+.slide.active {
+    opacity:1;
+    pointer-events:auto;
+    transform: translateX(0);
+}
+
+.slide.prev {
+    opacity:0;
+    transform: translateX(-60px);
+}
+
+/* ============ 背景テーマ ============ */
+.bg-navy {
+    background: linear-gradient(145deg, #0d2137 0%, #1a4a7a 60%, #0d3158 100%);
+    color: white;
+}
+
+.bg-white {
+    background: linear-gradient(160deg, #f8fbff 0%, #eaf4fd 100%);
+    color: #1a2a3a;
+}
+
+.bg-dark {
+    background: linear-gradient(145deg, #060f1a 0%, #0d2137 100%);
+    color: white;
+}
+
+.bg-green {
+    background: linear-gradient(145deg, #003d2b 0%, #005e42 60%, #00442f 100%);
+    color: white;
+}
+
+/* 波パターン装飾 */
+.wave-deco {
+    position:absolute;
+    bottom:0; left:0; right:0;
+    height:120px;
+    overflow:hidden;
+    opacity:0.15;
+    pointer-events:none;
+}
+
+.wave-deco svg { width:100%; height:100%; }
+
+.corner-deco {
+    position:absolute;
+    width:300px; height:300px;
+    border-radius:50%;
+    opacity:0.07;
+    pointer-events:none;
+}
+
+/* ============ スライド番号 & ナビ ============ */
+.slide-counter {
+    position:fixed;
+    bottom:24px; right:80px;
+    font-size:0.8rem;
+    color:rgba(255,255,255,0.5);
+    z-index:100;
+    letter-spacing:0.1em;
+}
+
+.nav-btns {
+    position:fixed;
+    bottom:16px; left:50%;
+    transform:translateX(-50%);
+    display:flex;
+    gap:12px;
+    z-index:100;
+}
+
+.nav-btn {
+    width:44px; height:44px;
+    border-radius:50%;
+    background:rgba(255,255,255,0.15);
+    backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,0.25);
+    color:white;
+    font-size:1rem;
+    cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    transition:all 0.2s ease;
+}
+
+.nav-btn:hover { background:rgba(255,255,255,0.3); transform:scale(1.1); }
+.nav-btn:disabled { opacity:0.3; cursor:default; }
+
+.progress-bar {
+    position:fixed;
+    top:0; left:0;
+    height:3px;
+    background:linear-gradient(90deg, var(--cyan), var(--green));
+    z-index:200;
+    transition:width 0.4s ease;
+}
+
+.slide-dots {
+    position:fixed;
+    bottom:26px; right:24px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    z-index:100;
+}
+
+.dot {
+    width:6px; height:6px;
+    border-radius:50%;
+    background:rgba(255,255,255,0.3);
+    cursor:pointer;
+    transition:all 0.3s ease;
+}
+
+.dot.active { background:var(--cyan); transform:scale(1.4); }
+
+/* ============ 共通パーツ ============ */
+.slide-inner {
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    padding:52px 64px 80px;
+    position:relative;
+    z-index:1;
+}
+
+.tag {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    background:rgba(0,170,255,0.2);
+    border:1px solid rgba(0,170,255,0.4);
+    color:var(--cyan);
+    font-size:0.75rem;
+    font-weight:700;
+    letter-spacing:0.1em;
+    padding:4px 14px;
+    border-radius:999px;
+    margin-bottom:1rem;
+    width:fit-content;
+}
+
+.slide-title {
+    font-size:clamp(1.8rem, 4vw, 3rem);
+    font-weight:900;
+    line-height:1.2;
+    margin-bottom:0.5rem;
+    letter-spacing:-0.02em;
+}
+
+.slide-subtitle {
+    font-size:clamp(0.9rem, 1.5vw, 1.1rem);
+    opacity:0.7;
+    margin-bottom:2rem;
+    font-weight:400;
+}
+
+.divider {
+    width:60px; height:4px;
+    background:linear-gradient(90deg, var(--cyan), var(--green));
+    border-radius:2px;
+    margin-bottom:2rem;
+}
+
+/* カード */
+.card-grid {
+    display:grid;
+    gap:1rem;
+    flex:1;
+}
+
+.card-grid-2 { grid-template-columns: 1fr 1fr; }
+.card-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+.card-grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+.card {
+    background:rgba(255,255,255,0.07);
+    border:1px solid rgba(255,255,255,0.12);
+    border-radius:16px;
+    padding:1.5rem;
+    transition:transform 0.2s;
+    backdrop-filter:blur(5px);
+}
+
+.card-white {
+    background:white;
+    border:1px solid #d0e8f8;
+    border-radius:16px;
+    padding:1.5rem;
+    box-shadow:0 4px 20px rgba(0,100,200,0.08);
+}
+
+.card:hover { transform:translateY(-2px); }
+
+.card-icon {
+    width:48px; height:48px;
+    border-radius:12px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.4rem;
+    margin-bottom:0.875rem;
+}
+
+.card-title { font-size:1rem; font-weight:700; margin-bottom:0.4rem; }
+.card-body  { font-size:0.82rem; opacity:0.75; line-height:1.7; }
+
+/* 数式ボックス */
+.formula {
+    background:rgba(0,170,255,0.1);
+    border:1.5px solid rgba(0,170,255,0.35);
+    border-radius:12px;
+    padding:1rem 1.5rem;
+    font-family:'Courier New', monospace;
+    font-size:1.05rem;
+    color:var(--cyan);
+    margin:0.5rem 0;
+    text-align:center;
+    letter-spacing:0.03em;
+}
+
+.formula-white {
+    background:#e8f4fd;
+    border:1.5px solid #a0cfef;
+    border-radius:12px;
+    padding:0.875rem 1.5rem;
+    font-family:'Courier New', monospace;
+    font-size:1rem;
+    color:#1a4a7a;
+    text-align:center;
+}
+
+/* ステップ */
+.step-list { display:flex; flex-direction:column; gap:0.75rem; }
+
+.step-item {
+    display:flex;
+    align-items:flex-start;
+    gap:1rem;
+    background:rgba(255,255,255,0.06);
+    border-radius:12px;
+    padding:0.875rem 1.25rem;
+    border:1px solid rgba(255,255,255,0.1);
+}
+
+.step-num {
+    width:32px; height:32px;
+    background:linear-gradient(135deg, var(--cyan), #0080cc);
+    border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:0.85rem; font-weight:700;
+    flex-shrink:0;
+    color:white;
+}
+
+.step-content { flex:1; }
+.step-title { font-size:0.95rem; font-weight:700; margin-bottom:0.2rem; }
+.step-desc  { font-size:0.8rem; opacity:0.7; line-height:1.5; }
+
+/* ハイライト数値 */
+.big-num {
+    font-size:clamp(2.5rem, 5vw, 4rem);
+    font-weight:900;
+    line-height:1;
+    background:linear-gradient(135deg, var(--cyan), var(--green));
+    -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;
+    background-clip:text;
+}
+
+.unit { font-size:1rem; font-weight:500; opacity:0.7; margin-left:0.3rem; }
+
+/* テーブル */
+.data-table { width:100%; border-collapse:collapse; font-size:0.82rem; }
+.data-table th {
+    background:var(--navy);
+    color:white;
+    padding:0.625rem 1rem;
+    text-align:center;
+    font-weight:700;
+}
+.data-table td {
+    padding:0.5rem 1rem;
+    text-align:center;
+    border-bottom:1px solid rgba(0,100,200,0.1);
+    color:#1a2a3a;
+}
+.data-table tr:nth-child(even) td { background:#f0f8ff; }
+.data-table tr.highlight td { background:rgba(0,196,140,0.12); font-weight:700; color:#005e42; }
+
+/* バッジ */
+.badge {
+    display:inline-block;
+    padding:3px 10px;
+    border-radius:999px;
+    font-size:0.72rem;
+    font-weight:700;
+}
+.badge-easy   { background:rgba(0,196,140,0.2); color:#00c48c; }
+.badge-medium { background:rgba(255,193,7,0.2);  color:#e0a800; }
+.badge-hard   { background:rgba(255,82,82,0.2);  color:#ff5252; }
+
+/* チェックリスト */
+.checklist { list-style:none; display:flex; flex-direction:column; gap:0.625rem; }
+.checklist li {
+    display:flex; align-items:flex-start; gap:0.75rem;
+    font-size:0.88rem; line-height:1.6;
+}
+.checklist li::before {
+    content:'✓';
+    width:22px; height:22px;
+    background:linear-gradient(135deg, var(--cyan), var(--green));
+    border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:0.7rem; font-weight:700; color:white;
+    flex-shrink:0; margin-top:1px;
+}
+
+/* 矢印フロー */
+.flow {
+    display:flex;
+    align-items:center;
+    gap:0.5rem;
+    flex-wrap:wrap;
+}
+.flow-item {
+    background:rgba(255,255,255,0.1);
+    border:1px solid rgba(255,255,255,0.2);
+    border-radius:10px;
+    padding:0.5rem 1rem;
+    font-size:0.82rem; font-weight:700;
+    text-align:center;
+}
+.flow-arrow { color:var(--cyan); font-size:1.1rem; }
+
+/* ============ スライド1: タイトル ============ */
+#s1 { justify-content:center; align-items:center; text-align:center; }
+
+.title-anchor {
+    font-size:0.85rem;
+    letter-spacing:0.2em;
+    color:var(--cyan);
+    font-weight:700;
+    margin-bottom:1.5rem;
+    opacity:0.9;
+}
+
+.main-title {
+    font-size:clamp(2.2rem, 5vw, 4rem);
+    font-weight:900;
+    line-height:1.15;
+    letter-spacing:-0.03em;
+    margin-bottom:1rem;
+}
+
+.main-title span {
+    background:linear-gradient(135deg, var(--cyan) 0%, var(--green) 100%);
+    -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;
+    background-clip:text;
+}
+
+.title-meta {
+    display:flex;
+    gap:1.5rem;
+    justify-content:center;
+    flex-wrap:wrap;
+    margin-top:2.5rem;
+}
+
+.meta-chip {
+    display:flex;
+    align-items:center;
+    gap:0.5rem;
+    background:rgba(255,255,255,0.1);
+    border:1px solid rgba(255,255,255,0.2);
+    border-radius:999px;
+    padding:0.5rem 1.25rem;
+    font-size:0.82rem;
+    backdrop-filter:blur(10px);
+}
+
+.ship-deco {
+    font-size:5rem;
+    margin-bottom:1.5rem;
+    display:block;
+    filter:drop-shadow(0 0 30px rgba(0,170,255,0.4));
+    animation: float 4s ease-in-out infinite;
+}
+
+@keyframes float {
+    0%,100% { transform:translateY(0); }
+    50%      { transform:translateY(-10px); }
+}
+
+/* ============ スライド: アジェンダ ============ */
+.agenda-list { display:flex; flex-direction:column; gap:0.875rem; flex:1; justify-content:center; }
+
+.agenda-item {
+    display:flex;
+    align-items:center;
+    gap:1.25rem;
+    background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.1);
+    border-radius:14px;
+    padding:1rem 1.5rem;
+    cursor:pointer;
+    transition:all 0.25s;
+}
+
+.agenda-item:hover {
+    background:rgba(0,170,255,0.12);
+    border-color:rgba(0,170,255,0.3);
+}
+
+.agenda-num {
+    font-size:1.5rem; font-weight:900;
+    color:var(--cyan); opacity:0.5;
+    width:40px; flex-shrink:0; text-align:right;
+}
+
+.agenda-text { flex:1; }
+.agenda-name { font-size:1rem; font-weight:700; }
+.agenda-desc { font-size:0.78rem; opacity:0.6; margin-top:0.15rem; }
+
+.agenda-time {
+    font-size:0.75rem; font-weight:700;
+    background:rgba(0,170,255,0.15);
+    color:var(--cyan);
+    padding:3px 10px; border-radius:999px;
+}
+
+/* キーボードヒント */
+.keyboard-hint {
+    position:fixed;
+    bottom:70px; left:50%;
+    transform:translateX(-50%);
+    font-size:0.72rem;
+    color:rgba(255,255,255,0.35);
+    display:flex; align-items:center; gap:0.5rem;
+    z-index:100;
+}
+
+kbd {
+    background:rgba(255,255,255,0.1);
+    border:1px solid rgba(255,255,255,0.2);
+    border-radius:4px;
+    padding:2px 7px;
+    font-size:0.7rem;
+    font-family:inherit;
+}
+
+/* チャートコンテナ */
+.chart-container { position:relative; flex:1; max-height:280px; }
+    </style>
+</head>
+<body>
+
+<div class="progress-bar" id="progress"></div>
+
+<div class="deck" id="deck">
+
+<!-- ========== スライド 1: タイトル ========== -->
+<div class="slide bg-navy active" id="s1">
+    <div class="corner-deco" style="background:var(--cyan);top:-100px;right:-100px;"></div>
+    <div class="corner-deco" style="background:var(--green);bottom:-150px;left:-100px;"></div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:3rem;">
+        <span class="ship-deco">⚓</span>
+        <div class="title-anchor">🏢 TSOL-AIHARA 社内勉強会</div>
+        <h1 class="main-title">
+            <span>船舶燃費・速力</span><br>計算の基礎知識
+        </h1>
+        <p style="font-size:1rem;opacity:0.65;margin-bottom:0.5rem;margin-top:0.5rem;">
+            〜 計算アプリを活用した実践的な海事計算入門 〜
+        </p>
+        <div class="title-meta">
+            <div class="meta-chip">⚓ NM / kg / knot の基礎</div>
+            <div class="meta-chip">📊 立方則・経済速力</div>
+            <div class="meta-chip">💻 計算アプリ活用法</div>
+            <div class="meta-chip">🏋️ 演習問題 6問</div>
+        </div>
+    </div>
+    <div class="wave-deco">
+        <svg viewBox="0 0 1440 120" preserveAspectRatio="none">
+            <path d="M0,60 C360,120 720,0 1080,60 C1260,90 1380,30 1440,60 L1440,120 L0,120 Z" fill="white"/>
+        </svg>
+    </div>
+</div>
+
+<!-- ========== スライド 2: アジェンダ ========== -->
+<div class="slide bg-dark" id="s2">
+    <div class="slide-inner">
+        <div class="tag"><i class="fas fa-list-ul"></i> AGENDA</div>
+        <h2 class="slide-title">本日の内容</h2>
+        <div class="divider"></div>
+        <div class="agenda-list">
+            <div class="agenda-item">
+                <div class="agenda-num">01</div>
+                <div class="agenda-text">
+                    <div class="agenda-name">🧭 海事計算の基礎単位</div>
+                    <div class="agenda-desc">NM（海里）・knot（ノット）・kg の意味と関係</div>
+                </div>
+                <div class="agenda-time">5分</div>
+            </div>
+            <div class="agenda-item">
+                <div class="agenda-num">02</div>
+                <div class="agenda-text">
+                    <div class="agenda-name">📐 5つの基本計算式</div>
+                    <div class="agenda-desc">燃費・速力・航続距離・航海時間・燃料消費量</div>
+                </div>
+                <div class="agenda-time">10分</div>
+            </div>
+            <div class="agenda-item">
+                <div class="agenda-num">03</div>
+                <div class="agenda-text">
+                    <div class="agenda-name">📊 立方則と経済速力</div>
+                    <div class="agenda-desc">速力が燃料消費に与える劇的な影響</div>
+                </div>
+                <div class="agenda-time">10分</div>
+            </div>
+            <div class="agenda-item">
+                <div class="agenda-num">04</div>
+                <div class="agenda-text">
+                    <div class="agenda-name">💻 計算アプリ使い方デモ</div>
+                    <div class="agenda-desc">7つの計算モード・シミュレーション・用語辞典</div>
+                </div>
+                <div class="agenda-time">10分</div>
+            </div>
+            <div class="agenda-item">
+                <div class="agenda-num">05</div>
+                <div class="agenda-text">
+                    <div class="agenda-name">🏋️ 演習問題チャレンジ</div>
+                    <div class="agenda-desc">実際に計算してみよう（初級〜上級）</div>
+                </div>
+                <div class="agenda-time">10分</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== スライド 3: 基礎単位 ========== -->
+<div class="slide bg-navy" id="s3">
+    <div class="slide-inner">
+        <div class="tag"><i class="fas fa-ruler"></i> 01 基礎単位</div>
+        <h2 class="slide-title">海事計算で使う3つの単位</h2>
+        <div class="divider"></div>
+        <div class="card-grid card-grid-3" style="flex:1;">
+            <div class="card" style="border-color:rgba(0,170,255,0.3);border-top:4px solid var(--cyan);">
+                <div class="card-icon" style="background:rgba(0,170,255,0.15);color:var(--cyan);font-size:2rem;">🌊</div>
+                <div class="card-title" style="font-size:1.3rem; color:var(--cyan);">NM（海里）</div>
+                <div style="font-size:0.75rem;opacity:0.6;margin-bottom:0.75rem;">Nautical Mile</div>
+                <div class="big-num" style="font-size:2rem;">1,852<span class="unit">m</span></div>
+                <div style="font-size:0.82rem;opacity:0.75;margin-top:0.75rem;line-height:1.7;">
+                    緯度1分に相当する距離。<br>
+                    地球の大きさを基準に決められた海上の距離単位。<br><br>
+                    <span style="color:var(--cyan);">例）東京→シンガポール</span><br>
+                    約 <strong>2,900 NM</strong>
+                </div>
+            </div>
+            <div class="card" style="border-color:rgba(0,196,140,0.3);border-top:4px solid var(--green);">
+                <div class="card-icon" style="background:rgba(0,196,140,0.15);color:var(--green);font-size:2rem;">💨</div>
+                <div class="card-title" style="font-size:1.3rem; color:var(--green);">knot（ノット）</div>
+                <div style="font-size:0.75rem;opacity:0.6;margin-bottom:0.75rem;">速力の単位</div>
+                <div class="big-num" style="font-size:2rem;">1.852<span class="unit">km/h</span></div>
+                <div style="font-size:0.82rem;opacity:0.75;margin-top:0.75rem;line-height:1.7;">
+                    1時間に1海里進む速さ。<br>
+                    船舶・航空機で世界標準の速度単位。<br><br>
+                    <span style="color:var(--green);">例）商船の標準速力</span><br>
+                    <strong>15〜20 knot</strong>
+                </div>
+            </div>
+            <div class="card" style="border-color:rgba(255,193,7,0.3);border-top:4px solid var(--yellow);">
+                <div class="card-icon" style="background:rgba(255,193,7,0.15);color:var(--yellow);font-size:2rem;">⛽</div>
+                <div class="card-title" style="font-size:1.3rem; color:var(--yellow);">kg（キログラム）</div>
+                <div style="font-size:0.75rem;opacity:0.6;margin-bottom:0.75rem;">燃料の重量単位</div>
+                <div class="big-num" style="font-size:2rem;">1,000<span class="unit">kg = 1MT</span></div>
+                <div style="font-size:0.82rem;opacity:0.75;margin-top:0.75rem;line-height:1.7;">
+                    船舶燃料（バンカー）の計量単位。<br>
+                    大型船はトン（MT）単位で管理。<br><br>
+                    <span style="color:var(--yellow);">例）大型タンカーの燃料搭載量</span><br>
+                    <strong>数千〜数万 MT</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== スライド 4: 燃費とは ========== -->
+<div class="slide bg-white" id="s4">
+    <div class="slide-inner">
+        <div class="tag" style="background:rgba(0,100,200,0.1);border-color:rgba(0,100,200,0.3);color:#1a4a7a;">
+            <i class="fas fa-chart-line"></i> 01 基礎単位
+        </div>
+        <h2 class="slide-title" style="color:#0d2137;">燃料消費率（NM/kg）とは？</h2>
+        <div class="divider"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;flex:1;">
+            <div>
+                <div class="card-white" style="margin-bottom:1rem;">
+                    <div style="font-size:0.85rem;font-weight:700;color:#1a4a7a;margin-bottom:0.75rem;">
+                        <i class="fas fa-lightbulb" style="color:var(--yellow)"></i> シンプルな意味
+                    </div>
+                    <p style="font-size:1rem;line-height:1.8;color:#2d4a6a;">
+                        燃料 <strong style="color:#0080cc;">1kg</strong> を使って<br>
+                        どれだけ <strong style="color:#0080cc;">遠くまで</strong> 進めるか
+                    </p>
+                    <div class="formula-white" style="margin-top:1rem;">
+                        燃費 = 航行距離(NM) ÷ 燃料(kg)
+                    </div>
+                </div>
+                <div class="card-white">
+                    <div style="font-size:0.85rem;font-weight:700;color:#1a4a7a;margin-bottom:0.75rem;">
+                        <i class="fas fa-car" style="color:var(--cyan)"></i> 自動車との比較
+                    </div>
+                    <div style="display:flex;gap:1rem;">
+                        <div style="flex:1;text-align:center;padding:0.75rem;background:#f8fbff;border-radius:10px;">
+                            <div style="font-size:1.8rem;">🚗</div>
+                            <div style="font-size:0.75rem;color:#64748b;margin-top:0.25rem;">自動車</div>
+                            <div style="font-size:1rem;font-weight:700;color:#1a4a7a;margin-top:0.25rem;">km/L</div>
+                            <div style="font-size:0.75rem;color:#64748b;">（リットルあたり）</div>
+                        </div>
+                        <div style="display:flex;align-items:center;color:#94a3b8;">→</div>
+                        <div style="flex:1;text-align:center;padding:0.75rem;background:#e8f8f3;border-radius:10px;border:2px solid #00c48c;">
+                            <div style="font-size:1.8rem;">⚓</div>
+                            <div style="font-size:0.75rem;color:#64748b;margin-top:0.25rem;">船舶</div>
+                            <div style="font-size:1rem;font-weight:700;color:#00543a;margin-top:0.25rem;">NM/kg</div>
+                            <div style="font-size:0.75rem;color:#64748b;">（キログラムあたり）</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <div class="card-white" style="height:100%;">
+                    <div style="font-size:0.85rem;font-weight:700;color:#1a4a7a;margin-bottom:1rem;">
+                        <i class="fas fa-star" style="color:var(--yellow)"></i> 燃費の評価基準
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:0.75rem;">
+                        <div style="display:flex;align-items:center;gap:1rem;padding:0.75rem;background:rgba(0,196,140,0.08);border-radius:10px;border-left:4px solid #00c48c;">
+                            <div style="font-size:1.5rem;">🌟</div>
+                            <div>
+                                <div style="font-weight:700;color:#005e42;">優良</div>
+                                <div style="font-size:0.82rem;color:#64748b;">0.30 NM/kg 以上</div>
+                            </div>
+                            <div style="margin-left:auto;font-size:1.2rem;font-weight:900;color:#00c48c;">≥ 0.30</div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:1rem;padding:0.75rem;background:rgba(0,170,255,0.06);border-radius:10px;border-left:4px solid var(--cyan);">
+                            <div style="font-size:1.5rem;">✅</div>
+                            <div>
+                                <div style="font-weight:700;color:#1a4a7a;">標準</div>
+                                <div style="font-size:0.82rem;color:#64748b;">0.20〜0.30 NM/kg</div>
+                            </div>
+                            <div style="margin-left:auto;font-size:1.2rem;font-weight:900;color:#0080cc;">0.20〜0.30</div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:1rem;padding:0.75rem;background:rgba(255,82,82,0.06);border-radius:10px;border-left:4px solid #ff5252;">
+                            <div style="font-size:1.5rem;">⚠️</div>
+                            <div>
+                                <div style="font-weight:700;color:#7a1a1a;">要改善</div>
+                                <div style="font-size:0.82rem;color:#64748b;">0.20 NM/kg 未満</div>
+                            </div>
+                            <div style="margin-left:auto;font-size:1.2rem;font-weight:900;color:#ff5252;">< 0.20</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:1rem;padding:0.75rem;background:#f8fbff;border-radius:10px;font-size:0.8rem;color:#64748b;line-height:1.6;">
+                        💡 燃費の数値が<strong style="color:#1a4a7a;">大きいほど</strong>省エネ。<br>
+                        同じ距離を少ない燃料で航行できることを示します。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== スライド 5: 5つの計算式 ========== -->
+<div class="slide bg-dark" id="s5">
+    <div class="slide-inner">
+        <div class="tag"><i class="fas fa-square-root-alt"></i> 02 基本計算式</div>
+        <h2 class="slide-title">覚えるべき 5 つの計算式</h2>
+        <div class="divider"></div>
+        <div class="card-grid" style="grid-template-columns:1fr 1fr;flex:1;gap:0.875rem;">
+            <div class="card" style="border-left:4px solid #00aaff;">
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+                    <div style="width:36px;height:36px;background:rgba(0,170,255,0.2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;">📈</div>
+                    <div style="font-weight:700;color:var(--cyan);">燃料消費率</div>
+                    <span style="margin-left:auto;font-size:0.72rem;background:rgba(0,170,255,0.15);color:var(--cyan);padding:2px 8px;border-radius:999px;">NM/kg</span>
+                </div>
+                <div class="formula">燃費 = 距離(NM) ÷ 燃料(kg)</div>
+            </div>
+            <div class="card" style="border-left:4px solid #00c48c;">
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+                    <div style="width:36px;height:36px;background:rgba(0,196,140,0.2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;">⚡</div>
+                    <div style="font-weight:700;color:var(--green);">速力</div>
+                    <span style="margin-left:auto;font-size:0.72rem;background:rgba(0,196,140,0.15);color:var(--green);padding:2px 8px;border-radius:999px;">knot</span>
+                </div>
+                <div class="formula" style="border-color:rgba(0,196,140,0.35);color:var(--green);">速力 = 距離(NM) ÷ 時間(h)</div>
+            </div>
+            <div class="card" style="border-left:4px solid #ffc107;">
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+                    <div style="width:36px;height:36px;background:rgba(255,193,7,0.2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;">🗺️</div>
+                    <div style="font-weight:700;color:var(--yellow);">航続距離</div>
+                    <span style="margin-left:auto;font-size:0.72rem;background:rgba(255,193,7,0.15);color:var(--yellow);padding:2px 8px;border-radius:999px;">NM</span>
+                </div>
+                <div class="formula" style="border-color:rgba(255,193,7,0.35);color:var(--yellow);">航続距離 = 燃料(kg) × 燃費(NM/kg)</div>
+            </div>
+            <div class="card" style="border-left:4px solid #b39ddb;">
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+                    <div style="width:36px;height:36px;background:rgba(179,157,219,0.2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;">🕐</div>
+                    <div style="font-weight:700;color:#b39ddb;">航海時間</div>
+                    <span style="margin-left:auto;font-size:0.72rem;background:rgba(179,157,219,0.15);color:#b39ddb;padding:2px 8px;border-radius:999px;">hour</span>
+                </div>
+                <div class="formula" style="border-color:rgba(179,157,219,0.35);color:#b39ddb;">航海時間 = 距離(NM) ÷ 速力(knot)</div>
+            </div>
+            <div class="card" style="border-left:4px solid #ff7043;grid-column:1/-1;">
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+                    <div style="width:36px;height:36px;background:rgba(255,112,67,0.2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;">⛽</div>
+                    <div style="font-weight:700;color:#ff7043;">燃料消費量</div>
+                    <span style="margin-left:auto;font-size:0.72rem;background:rgba(255,112,67,0.15);color:#ff7043;padding:2px 8px;border-radius:999px;">kg</span>
+                </div>
+                <div class="formula" style="border-color:rgba(255,112,67,0.35);color:#ff7043;">燃料消費量 = 距離(NM) ÷ 燃費(NM/kg)</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== スライド 6: 計算例 ========== -->
+<div class="slide bg-white" id="s6">
+    <div class="slide-inner">
+        <div class="tag" style="background:rgba(0,100,200,0.1);border-color:rgba(0,100,200,0.3);color:#1a4a7a;">
+            <i class="fas fa-calculator"></i> 02 計算例
+        </div>
+        <h2 class="slide-title" style="color:#0d2137;">例題：東京 → シンガポール</h2>
+        <div class="divider"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;flex:1;">
+            <div>
+                <div class="card-white" style="margin-bottom:1rem;">
+                    <div style="font-weight:700;color:#1a4a7a;margin-bottom:0.875rem;display:flex;align-items:center;gap:0.5rem;">
+                        <i class="fas fa-ship" style="color:var(--cyan)"></i> 航海条件
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                        <div style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px dashed #e0eaf4;">
+                            <span style="color:#64748b;font-size:0.875rem;">航行距離</span>
+                            <strong style="color:#1a4a7a;">2,900 NM</strong>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px dashed #e0eaf4;">
+                            <span style="color:#64748b;font-size:0.875rem;">計画速力</span>
+                            <strong style="color:#1a4a7a;">15 knot</strong>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;padding:0.5rem 0;">
+                            <span style="color:#64748b;font-size:0.875rem;">燃料消費率</span>
+                            <strong style="color:#1a4a7a;">0.25 NM/kg</strong>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-white">
+                    <div style="font-weight:700;color:#1a4a7a;margin-bottom:0.875rem;display:flex;align-items:center;gap:0.5rem;">
+                        <i class="fas fa-list-ol" style="color:var(--cyan)"></i> 計算ステップ
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                        <div style="background:#f0f8ff;border-left:3px solid var(--cyan);border-radius:0 8px 8px 0;padding:0.5rem 0.75rem;font-size:0.82rem;font-family:monospace;">
+                            ① 燃料消費量 = 2,900 ÷ 0.25
+                        </div>
+                        <div style="background:#f0f8ff;border-left:3px solid var(--cyan);border-radius:0 8px 8px 0;padding:0.5rem 0.75rem;font-size:0.82rem;font-family:monospace;">
+                            ② 燃料消費量 = <strong style="color:#0080cc;">11,600 kg</strong>
+                        </div>
+                        <div style="background:#f0f8ff;border-left:3px solid var(--green);border-radius:0 8px 8px 0;padding:0.5rem 0.75rem;font-size:0.82rem;font-family:monospace;">
+                            ③ 航海時間 = 2,900 ÷ 15 = <strong style="color:#005e42;">193.3 h</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:1rem;">
+                <div class="card-white" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
+                    <div style="font-size:0.82rem;color:#64748b;margin-bottom:0.5rem;">必要な燃料</div>
+                    <div style="font-size:3.5rem;font-weight:900;background:linear-gradient(135deg,#0080cc,#00c48c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;">11,600</div>
+                    <div style="font-size:1rem;color:#64748b;margin-top:0.25rem;">kg（約 11.6 MT）</div>
+                    <div style="width:80%;height:1px;background:#e0eaf4;margin:1rem auto;"></div>
+                    <div style="font-size:0.82rem;color:#64748b;margin-bottom:0.5rem;">航海時間</div>
+                    <div style="font-size:2.5rem;font-weight:900;color:#1a4a7a;line-height:1;">193.3 h</div>
+                    <div style="font-size:0.85rem;color:#64748b;margin-top:0.25rem;">（約 8日 1時間）</div>
+                </div>
+                <div class="card-white" style="background:#fffbeb;border-color:#fde68a;">
+                    <div style="font-size:0.82rem;font-weight:700;color:#92400e;margin-bottom:0.5rem;">💡 実務のポイント</div>
+                    <div style="font-size:0.8rem;color:#78350f;line-height:1.7;">
+                        実際には予備燃料として <strong>+10〜15%</strong> を追加搭載します。<br>
+                        11,600 × 1.15 = <strong>約 13,340 kg</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== スライド 7: 立方則 ========== -->
+<div class="slide bg-navy" id="s7">
+    <div class="slide-inner">
+        <div class="tag"><i class="fas fa-cube"></i> 03 立方則</div>
+        <h2 class="slide-title">立方則 ― 速力が燃費に与える衝撃</h2>
+        <div class="divider"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;flex:1;">
+            <div>
+                <div class="card" style="border-color:rgba(255,82,82,0.3);margin-bottom:1rem;">
+                    <div style="font-weight:700;color:#ff5252;margin-bottom:0.75rem;font-size:1rem;">
+                        ⚠️ 立方則とは
+                    </div>
+                    <div class="formula" style="border-color:rgba(255,82,82,0.4);color:#ff8a80;font-size:0.95rem;">
+                        燃料消費 ∝ 速力³（3乗）
+                    </div>
+                    <p style="font-size:0.82rem;opacity:0.8;line-height:1.8;margin-top:0.875rem;">
+                        速力を <strong style="color:var(--cyan);">10%下げる</strong>だけで<br>
+                        燃料消費は <strong style="color:var(--green);">約27%減少</strong>する<br>
+                        <span style="font-family:monospace;color:rgba(255,255,255,0.6);">（0.9³ ≈ 0.729）</span>
+                    </p>
+                </div>
+                <div class="card">
+                    <div style="font-weight:700;color:var(--cyan);margin-bottom:0.875rem;">速力削減の効果</div>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                        <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem;background:rgba(0,170,255,0.08);border-radius:8px;">
+                            <span style="font-size:0.8rem;width:80px;">速力 -5%</span>
+                            <div style="flex:1;background:rgba(255,255,255,0.1);border-radius:999px;height:8px;overflow:hidden;">
+                                <div style="width:14%;height:100%;background:var(--green);border-radius:999px;"></div>
+                            </div>
+                            <span style="color:var(--green);font-weight:700;font-size:0.85rem;">-14%</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem;background:rgba(0,170,255,0.08);border-radius:8px;">
+                            <span style="font-size:0.8rem;width:80px;">速力 -10%</span>
+                            <div style="flex:1;background:rgba(255,255,255,0.1);border-radius:999px;height:8px;overflow:hidden;">
+                                <div style="width:27%;height:100%;background:var(--green);border-radius:999px;"></div>
+                            </div>
+                            <span style="color:var(--green);font-weight:700;font-size:0.85rem;">-27%</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem;background:rgba(0,170,255,0.08);border-radius:8px;">
+                            <span style="font-size:0.8rem;width:80px;">速力 -20%</span>
+                            <div style="flex:1;background:rgba(255,255,255,0.1);border-radius:999px;height:8px;overflow:hidden;">
+                                <div style="width:49%;height:100%;background:var(--green);border-radius:999px;"></div>
+                            </div>
+                            <span style="color:var(--green);font-weight:700;font-size:0.85rem;">-49%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <div class="card" style="height:100%;">
+                    <div style="font-weight:700;color:var(--cyan);margin-bottom:0.875rem;">18knot vs 15knot の比較</div>
+                    <div class="chart-container" style="max-height:220px;margin-bottom:1rem;">
+                        <canvas id="cubeChart"></canvas>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-top:0.5rem;">
+                        <div style="background:rgba(255,82,82,0.12);border-radius:10px;padding:0.75rem;text-align:center;">
+                            <div style="font-size:0.72rem;opacity:0.7;">18 knot</div>
+                            <div style="font-size:1.4rem;font-weight:900;color:#ff5252;">100%</div>
+                            <div style="font-size:0.72rem;opacity:0.6;">基準燃料消費</div>
+                        </div>
+                        <div style="background:rgba(0,196,140,0.12);border-radius:10px;padding:0.75rem;text-align:center;">
+                            <div style="font-size:0.72rem;opacity:0.7;">15 knot</div>
+                            <div style="font-size:1.4rem;font-weight:900;color:var(--green);">57.9%</div>
+                            <div style="font-size:0.72rem;opacity:0.6;">約42%削減！</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== スライド 8: 経済速力 ========== -->
+<div class="slide bg-white" id="s8">
+    <div class="slide-inner">
+        <div class="tag" style="background:rgba(0,100,200,0.1);border-color:rgba(0,100,200,0.3);color:#1a4a7a;">
+            <i class="fas fa-ship"></i> 03 経済速力
+        </div>
+        <h2 class="slide-title" style="color:#0d2137;">経済速力とスロースチーミング</h2>
+        <div class="divider"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem;">
+            <div class="card-white" style="text-align:center;">
+                <div style="font-size:2rem;margin-bottom:0.5rem;">🐌</div>
+                <div style="font-size:1rem;font-weight:700;color:#005e42;">スロースチーミング</div>
+                <div style="font-size:0.75rem;color:#64748b;margin:0.25rem 0 0.75rem;">最高速の 65〜75%</div>
+                <div style="font-size:1.8rem;font-weight:900;color:#00c48c;">燃料↓30%</div>
+                <div style="font-size:0.75rem;color:#64748b;margin-top:0.25rem;">大幅節約・環境◎</div>
+            </div>
+            <div class="card-white" style="text-align:center;border:2px solid #0080cc;">
+                <div style="font-size:2rem;margin-bottom:0.5rem;">✅</div>
+                <div style="font-size:1rem;font-weight:700;color:#1a4a7a;">経済速力</div>
+                <div style="font-size:0.75rem;color:#64748b;margin:0.25rem 0 0.75rem;">最高速の 75〜85%</div>
+                <div style="font-size:1.8rem;font-weight:900;color:#0080cc;">最適バランス</div>
+                <div style="font-size:0.75rem;color:#64748b;margin-top:0.25rem;">燃費と時間の最適点</div>
+            </div>
+            <div class="card-white" style="text-align:center;">
+                <div style="font-size:2rem;margin-bottom:0.5rem;">🚀</div>
+                <div style="font-size:1rem;font-weight:700;color:#7a1a1a;">全速力</div>
+                <div style="font-size:0.75rem;color:#64748b;margin:0.25rem 0 0.75rem;">最高速</div>
+                <div style="font-size:1.8rem;font-weight:900;color:#ff5252;">燃料↑大</div>
+                <div style="font-size:0.75rem;color:#64748b;margin-top:0.25rem;">緊急時のみ</div>
+            </div>
+        </div>
+        <div class="card-white" style="background:linear-gradient(135deg,#f0f8ff,#e8f4fd);">
+            <div style="font-weight:700;color:#1a4a7a;margin-bottom:0.875rem;display:flex;align-items:center;gap:0.5rem;">
+                <i class="fas fa-lightbulb" style="color:var(--yellow)"></i> 実務での判断基準
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;">
+                <div style="display:flex;align-items:flex-start;gap:0.5rem;">
+                    <div style="width:24px;height:24px;background:#0080cc;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:0.75rem;font-weight:700;flex-shrink:0;">1</div>
+                    <div style="font-size:0.82rem;color:#2d4a6a;line-height:1.6;"><strong>到着期限</strong>に余裕があれば減速</div>
+                </div>
+                <div style="display:flex;align-items:flex-start;gap:0.5rem;">
+                    <div style="width:24px;height:24px;background:#0080cc;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:0.75rem;font-weight:700;flex-shrink:0;">2</div>
+                    <div style="font-size:0.82rem;color:#2d4a6a;line-height:1.6;"><strong>燃料価格</strong>が高い時は経済速力</div>
+                </div>
+                <div style="display:flex;align-items:flex-start;gap:0.5rem;">
+                    <div style="width:24px;height:24px;background:#0080cc;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:0.75rem;font-weight:700;flex-shrink:0;">3</div>
+                    <div style="font-size:0.82rem;color:#2d4a6a;line-height:1.6;"><strong>CO2規制（CII）</strong>対応にも有効</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== スライド 9: アプリ紹介 ========== -->
+<div class="slide bg-dark" id="s9">
+    <div class="slide-inner">
+        <div class="tag"><i class="fas fa-laptop"></i> 04 アプリ紹介</div>
+        <h2 class="slide-title">船舶燃費・速力計算アプリ の全機能</h2>
+        <div class="divider"></div>
+        <div class="card-grid card-grid-4" style="flex:1;gap:0.875rem;">
+            <div class="card" style="border-top:3px solid var(--cyan);">
+                <div class="card-icon" style="background:rgba(0,170,255,0.15);color:var(--cyan);">🧮</div>
+                <div class="card-title" style="color:var(--cyan);">基礎計算</div>
+                <div class="card-body">
+                    7種の計算モード<br>
+                    ・燃料消費率<br>
+                    ・速力<br>
+                    ・航続距離<br>
+                    ・航海時間<br>
+                    ・燃料消費量<br>
+                    ・燃料コスト<br>
+                    ・CO2排出量
+                </div>
+            </div>
+            <div class="card" style="border-top:3px solid var(--green);">
+                <div class="card-icon" style="background:rgba(0,196,140,0.15);color:var(--green);">📚</div>
+                <div class="card-title" style="color:var(--green);">演習問題</div>
+                <div class="card-body">
+                    6問の実践問題<br><br>
+                    ・初級〜上級<br>
+                    ・ヒント機能<br>
+                    ・解答・解説<br>
+                    ・スコア記録<br>
+                    ・正答率表示
+                </div>
+            </div>
+            <div class="card" style="border-top:3px solid var(--yellow);">
+                <div class="card-icon" style="background:rgba(255,193,7,0.15);color:var(--yellow);">📊</div>
+                <div class="card-title" style="color:var(--yellow);">シミュレーション</div>
+                <div class="card-body">
+                    速力別比較分析<br><br>
+                    ・燃料コスト比較<br>
+                    ・最適速力推奨<br>
+                    ・グラフ表示<br>
+                    ・CSVエクスポート<br>
+                    ・立方則計算
+                </div>
+            </div>
+            <div class="card" style="border-top:3px solid #b39ddb;">
+                <div class="card-icon" style="background:rgba(179,157,219,0.15);color:#b39ddb;">📖</div>
+                <div class="card-title" style="color:#b39ddb;">用語辞典</div>
+                <div class="card-body">
+                    16語収録<br><br>
+                    ・リアルタイム検索<br>
+                    ・用語の追加・編集<br>
+                    ・NM / knot 等<br>
+                    ・CII / EEOI 等<br>
+                    ・スロースチーミング
+                </div>
+            </div>
+        </div>
+        <div style="display:flex;gap:0.875rem;margin-top:0.875rem;">
+            <div class="card" style="flex:1;flex-direction:row;display:flex;align-items:center;gap:1rem;padding:0.875rem 1.25rem;">
+                <span style="font-size:1.3rem;">🌙</span>
+                <div style="font-size:0.82rem;">ダークモード対応</div>
+            </div>
+            <div class="card" style="flex:1;flex-direction:row;display:flex;align-items:center;gap:1rem;padding:0.875rem 1.25rem;">
+                <span style="font-size:1.3rem;">📋</span>
+                <div style="font-size:0.82rem;">計算履歴・保存機能</div>
+            </div>
+            <div class="card" style="flex:1;flex-direction:row;display:flex;align-items:center;gap:1rem;padding:0.875rem 1.25rem;">
+                <span style="font-size:1.3rem;">🔄</span>
+                <div style="font-size:0.82rem;">双方向 単位変換</div>
+            </div>
+            <div class="card" style="flex:1;flex-direction:row;display:flex;align-items:center;gap:1rem;padding:0.875rem 1.25rem;">
+                <span style="font-size:1.3rem;">📱</span>
+                <div style="font-size:0.82rem;">スマホ・PC 対応</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== スライド 10: アプリ使い方 ========== -->
+<div class="slide bg-white" id="s10">
+    <div class="slide-inner">
+        <div class="tag" style="background:rgba(0,100,200,0.1);border-color:rgba(0,100,200,0.3);color:#1a4a7a;">
+            <i class="fas fa-mouse-pointer"></i> 04 使い方
+        </div>
+        <h2 class="slide-title" style="color:#0d2137;">アプリの使い方 ― 基礎計算編</h2>
+        <div class="divider"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;flex:1;">
+            <div class="step-list" style="gap:0.625rem;">
+                <div class="step-item" style="background:#f0f8ff;border-color:#d0e8f8;">
+                    <div class="step-num" style="background:linear-gradient(135deg,#0080cc,#005599);">1</div>
+                    <div class="step-content">
+                        <div class="step-title" style="color:#1a4a7a;">計算モードを選ぶ</div>
+                        <div class="step-desc" style="color:#64748b;">「燃料消費量を計算」など、求めたい値のボタンをタップ</div>
+                    </div>
+                </div>
+                <div class="step-item" style="background:#f0f8ff;border-color:#d0e8f8;">
+                    <div class="step-num" style="background:linear-gradient(135deg,#0080cc,#005599);">2</div>
+                    <div class="step-content">
+                        <div class="step-title" style="color:#1a4a7a;">数値を入力する</div>
+                        <div class="step-desc" style="color:#64748b;">表示された計算式を確認しながら、わかっている値を入力</div>
+                    </div>
+                </div>
+                <div class="step-item" style="background:#f0f8ff;border-color:#d0e8f8;">
+                    <div class="step-num" style="background:linear-gradient(135deg,#0080cc,#005599);">3</div>
+                    <div class="step-content">
+                        <div class="step-title" style="color:#1a4a7a;">「計算実行」を押す</div>
+                        <div class="step-desc" style="color:#64748b;">Enterキーでも計算できます</div>
+                    </div>
+                </div>
+                <div class="step-item" style="background:#f0f8ff;border-color:#d0e8f8;">
+                    <div class="step-num" style="background:linear-gradient(135deg,#0080cc,#005599);">4</div>
+                    <div class="step-content">
+                        <div class="step-title" style="color:#1a4a7a;">結果・計算過程を確認</div>
+                        <div class="step-desc" style="color:#64748b;">計算ステップ・追加情報・コピーボタンで確認・共有</div>
+                    </div>
+                </div>
+                <div class="step-item" style="background:#f0f8ff;border-color:#d0e8f8;">
+                    <div class="step-num" style="background:linear-gradient(135deg,#0080cc,#005599);">5</div>
+                    <div class="step-content">
+                        <div class="step-title" style="color:#1a4a7a;">「履歴に保存」で記録</div>
+                        <div class="step-desc" style="color:#64748b;">あとで見返したい計算は履歴タブに保存できます</div>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:1rem;">
+                <div class="card-white">
+                    <div style="font-weight:700;color:#1a4a7a;margin-bottom:0.875rem;font-size:0.9rem;">
+                        ⌨️ 便利なショートカット
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;font-size:0.82rem;">
+                        <div style="display:flex;align-items:center;gap:0.75rem;">
+                            <kbd style="background:#f1f5f9;border:1px solid #d0e8f8;border-radius:4px;padding:2px 8px;font-family:monospace;color:#1a4a7a;">Ctrl + 1〜5</kbd>
+                            <span style="color:#64748b;">タブを素早く切替</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;">
+                            <kbd style="background:#f1f5f9;border:1px solid #d0e8f8;border-radius:4px;padding:2px 8px;font-family:monospace;color:#1a4a7a;">Enter</kbd>
+                            <span style="color:#64748b;">計算を実行</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;">
+                            <kbd style="background:#f1f5f9;border:1px solid #d0e8f8;border-radius:4px;padding:2px 8px;font-family:monospace;color:#1a4a7a;">Ctrl + D</kbd>
+                            <span style="color:#64748b;">ダークモード切替</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-white" style="flex:1;background:#f0fff8;border-color:#a7f3d0;">
+                    <div style="font-weight:700;color:#065f46;margin-bottom:0.875rem;font-size:0.9rem;">
+                        🔗 アプリのURL
+                    </div>
+                    <div style="background:white;border:1.5px solid #a7f3d0;border-radius:10px;padding:0.875rem;text-align:center;">
+                        <div style="font-size:0.65rem;color:#64748b;margin-bottom:0.375rem;">今すぐアクセス</div>
+                        <div style="font-size:0.8rem;font-weight:700;color:#065f46;word-break:break-all;line-height:1.5;">
+                            https://aihara1089-creator.github.io/<br>ship-management/
+                        </div>
+                    </div>
+                    <div style="margin-top:0.875rem;font-size:0.78rem;color:#065f46;text-align:center;">
+                        📱 スマホからもアクセスできます
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== スライド 11: シミュレーション使い方 ========== -->
+<div class="slide bg-navy" id="s11">
+    <div class="slide-inner">
+        <div class="tag"><i class="fas fa-chart-bar"></i> 04 シミュレーション</div>
+        <h2 class="slide-title">シミュレーション機能の使い方</h2>
+        <div class="divider"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;flex:1;">
+            <div>
+                <div class="card" style="margin-bottom:1rem;">
+                    <div style="font-weight:700;color:var(--cyan);margin-bottom:0.875rem;">入力する4つの条件</div>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                        <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem;background:rgba(255,255,255,0.06);border-radius:8px;">
+                            <span>🗺️</span>
+                            <span style="font-size:0.82rem;">航行距離（NM）</span>
+                            <span style="margin-left:auto;font-size:0.78rem;opacity:0.6;">例：2,900</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem;background:rgba(255,255,255,0.06);border-radius:8px;">
+                            <span>⚡</span>
+                            <span style="font-size:0.82rem;">基準速力（knot）</span>
+                            <span style="margin-left:auto;font-size:0.78rem;opacity:0.6;">例：15</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem;background:rgba(255,255,255,0.06);border-radius:8px;">
+                            <span>⛽</span>
+                            <span style="font-size:0.82rem;">基準燃費（NM/kg）</span>
+                            <span style="margin-left:auto;font-size:0.78rem;opacity:0.6;">例：0.25</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem;background:rgba(255,255,255,0.06);border-radius:8px;">
+                            <span>💴</span>
+                            <span style="font-size:0.82rem;">燃料単価（円/kg）</span>
+                            <span style="margin-left:auto;font-size:0.78rem;opacity:0.6;">例：150</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div style="font-weight:700;color:var(--green);margin-bottom:0.75rem;">得られる分析結果</div>
+                    <ul class="checklist">
+                        <li>各速力での燃料消費量</li>
+                        <li>燃料コスト・CO2排出量の比較</li>
+                        <li>最適速力の自動推奨</li>
+                        <li>グラフによる視覚的分析</li>
+                        <li>CSVダウンロード</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="card" style="height:100%;">
+                <div style="font-weight:700;color:var(--yellow);margin-bottom:0.875rem;">速力別比較表（例）</div>
+                <div style="overflow:auto;border-radius:10px;border:1px solid rgba(255,255,255,0.1);">
+                    <table class="data-table" style="background:rgba(255,255,255,0.03);">
+                        <thead>
+                            <tr>
+                                <th style="background:#0d2137;">速力</th>
+                                <th style="background:#0d2137;">燃料(kg)</th>
+                                <th style="background:#0d2137;">コスト</th>
+                                <th style="background:#0d2137;">時間(h)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.03);">10 kt</td><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.03);">7,717</td><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.03);">¥1,158K</td><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.03);">290.0</td></tr>
+                            <tr><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.05);">12 kt</td><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.05);">10,030</td><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.05);">¥1,505K</td><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.05);">241.7</td></tr>
+                            <tr style="background:rgba(0,196,140,0.15)!important;">
+                                <td style="color:#00c48c;font-weight:700;background:rgba(0,196,140,0.12);">15 kt ★</td>
+                                <td style="color:#00c48c;font-weight:700;background:rgba(0,196,140,0.12);">11,600</td>
+                                <td style="color:#00c48c;font-weight:700;background:rgba(0,196,140,0.12);">¥1,740K</td>
+                                <td style="color:#00c48c;font-weight:700;background:rgba(0,196,140,0.12);">193.3</td>
+                            </tr>
+                            <tr><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.03);">18 kt</td><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.03);">20,009</td><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.03);">¥3,001K</td><td style="color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.03);">161.1</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top:0.875rem;background:rgba(0,196,140,0.1);border-radius:10px;padding:0.75rem;font-size:0.78rem;line-height:1.6;">
+                    ★ 最適速力 15 knot を選択した場合、18 kt 比で<br>
+                    燃料を <strong style="color:var(--green);">約42%削減</strong>、コストを <strong style="color:var(--green);">約¥1,261K節約</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== スライド 12: 演習問題 ========== -->
+<div class="slide bg-white" id="s12">
+    <div class="slide-inner">
+        <div class="tag" style="background:rgba(0,100,200,0.1);border-color:rgba(0,100,200,0.3);color:#1a4a7a;">
+            <i class="fas fa-pencil-alt"></i> 05 演習問題
+        </div>
+        <h2 class="slide-title" style="color:#0d2137;">さっそく計算してみよう！</h2>
+        <div class="divider"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;flex:1;">
+            <div style="display:flex;flex-direction:column;gap:0.875rem;">
+                <div class="card-white" style="border-left:4px solid #00c48c;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.625rem;">
+                        <span class="badge badge-easy">初級</span>
+                        <span style="font-size:0.88rem;font-weight:700;color:#1a4a7a;">Q1. 燃料消費量を求めよ</span>
+                    </div>
+                    <div style="font-size:0.82rem;color:#2d4a6a;background:#f8fbff;border-radius:8px;padding:0.625rem;line-height:1.7;">
+                        航行距離：<strong>2,900 NM</strong>、燃費：<strong>0.25 NM/kg</strong><br>
+                        必要な燃料は何 kg？
+                    </div>
+                    <div style="margin-top:0.5rem;font-size:0.75rem;color:#94a3b8;">ヒント：燃料消費量 = 距離 ÷ 燃費</div>
+                </div>
+                <div class="card-white" style="border-left:4px solid #00c48c;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.625rem;">
+                        <span class="badge badge-easy">初級</span>
+                        <span style="font-size:0.88rem;font-weight:700;color:#1a4a7a;">Q2. 航海時間を求めよ</span>
+                    </div>
+                    <div style="font-size:0.82rem;color:#2d4a6a;background:#f8fbff;border-radius:8px;padding:0.625rem;line-height:1.7;">
+                        距離：<strong>1,500 NM</strong>、速力：<strong>12 knot</strong><br>
+                        何時間かかる？
+                    </div>
+                    <div style="margin-top:0.5rem;font-size:0.75rem;color:#94a3b8;">ヒント：時間 = 距離 ÷ 速力</div>
+                </div>
+                <div class="card-white" style="border-left:4px solid #e0a800;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.625rem;">
+                        <span class="badge badge-medium">中級</span>
+                        <span style="font-size:0.88rem;font-weight:700;color:#1a4a7a;">Q3. 実速力を求めよ</span>
+                    </div>
+                    <div style="font-size:0.82rem;color:#2d4a6a;background:#f8fbff;border-radius:8px;padding:0.625rem;line-height:1.7;">
+                        距離：<strong>840 NM</strong>、時間：<strong>48 h</strong><br>
+                        実速力は何ノット？
+                    </div>
+                    <div style="margin-top:0.5rem;font-size:0.75rem;color:#94a3b8;">ヒント：速力 = 距離 ÷ 時間</div>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:0.875rem;">
+                <div class="card-white" style="border-left:4px solid #e0a800;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.625rem;">
+                        <span class="badge badge-medium">中級</span>
+                        <span style="font-size:0.88rem;font-weight:700;color:#1a4a7a;">Q4. 燃費を求めよ</span>
+                    </div>
+                    <div style="font-size:0.82rem;color:#2d4a6a;background:#f8fbff;border-radius:8px;padding:0.625rem;line-height:1.7;">
+                        距離：<strong>3,600 NM</strong>、燃料：<strong>18,000 kg</strong><br>
+                        燃費は何 NM/kg？
+                    </div>
+                    <div style="margin-top:0.5rem;font-size:0.75rem;color:#94a3b8;">ヒント：燃費 = 距離 ÷ 燃料</div>
+                </div>
+                <div class="card-white" style="border-left:4px solid #ff5252;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.625rem;">
+                        <span class="badge badge-hard">上級</span>
+                        <span style="font-size:0.88rem;font-weight:700;color:#1a4a7a;">Q5. 立方則を使え</span>
+                    </div>
+                    <div style="font-size:0.82rem;color:#2d4a6a;background:#f8fbff;border-radius:8px;padding:0.625rem;line-height:1.7;">
+                        距離：<strong>2,400 NM</strong>、基準速力：<strong>18 kt</strong><br>
+                        基準燃費：<strong>0.22 NM/kg</strong>、経済速力：<strong>15 kt</strong><br>
+                        経済速力での燃料消費量は？
+                    </div>
+                    <div style="margin-top:0.5rem;font-size:0.75rem;color:#94a3b8;">ヒント：燃費 × (基準速力/経済速力)³</div>
+                </div>
+                <div class="card-white" style="background:#f0fff8;border-color:#a7f3d0;flex:1;display:flex;align-items:center;">
+                    <div style="text-align:center;width:100%;">
+                        <div style="font-size:1.5rem;margin-bottom:0.5rem;">💻</div>
+                        <div style="font-size:0.88rem;font-weight:700;color:#065f46;margin-bottom:0.25rem;">アプリで確認しよう！</div>
+                        <div style="font-size:0.75rem;color:#047857;line-height:1.6;">
+                            演習タブの「ヒント」「解答を見る」で<br>
+                            詳しい解説を確認できます
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== スライド 13: まとめ ========== -->
+<div class="slide bg-green" id="s13">
+    <div class="corner-deco" style="background:rgba(255,255,255,0.2);top:-100px;right:-100px;"></div>
+    <div class="slide-inner">
+        <div class="tag" style="background:rgba(255,255,255,0.15);border-color:rgba(255,255,255,0.3);color:white;">
+            <i class="fas fa-check-circle"></i> まとめ
+        </div>
+        <h2 class="slide-title">本日のまとめ</h2>
+        <div class="divider" style="background:linear-gradient(90deg,#7fffcf,#00ffa0);"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;flex:1;">
+            <div>
+                <div style="font-size:0.85rem;font-weight:700;opacity:0.7;margin-bottom:0.875rem;letter-spacing:0.05em;">📌 今日覚えた3つのこと</div>
+                <div style="display:flex;flex-direction:column;gap:0.875rem;">
+                    <div style="background:rgba(255,255,255,0.12);border-radius:14px;padding:1rem 1.25rem;display:flex;gap:1rem;align-items:flex-start;">
+                        <div style="width:36px;height:36px;background:rgba(255,255,255,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;flex-shrink:0;">1</div>
+                        <div>
+                            <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.25rem;">3つの基本単位</div>
+                            <div style="font-size:0.82rem;opacity:0.8;">NM（距離）・knot（速力）・kg（燃料）の関係</div>
+                        </div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.12);border-radius:14px;padding:1rem 1.25rem;display:flex;gap:1rem;align-items:flex-start;">
+                        <div style="width:36px;height:36px;background:rgba(255,255,255,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;flex-shrink:0;">2</div>
+                        <div>
+                            <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.25rem;">5つの計算式</div>
+                            <div style="font-size:0.82rem;opacity:0.8;">燃費・速力・航続距離・航海時間・燃料消費量</div>
+                        </div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.12);border-radius:14px;padding:1rem 1.25rem;display:flex;gap:1rem;align-items:flex-start;">
+                        <div style="width:36px;height:36px;background:rgba(255,255,255,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;flex-shrink:0;">3</div>
+                        <div>
+                            <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.25rem;">立方則と経済速力</div>
+                            <div style="font-size:0.82rem;opacity:0.8;">速力 -10% → 燃料 -27%（スロースチーミングの根拠）</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:1rem;">
+                <div style="background:rgba(255,255,255,0.12);border-radius:16px;padding:1.25rem;">
+                    <div style="font-size:0.85rem;font-weight:700;opacity:0.7;margin-bottom:0.875rem;letter-spacing:0.05em;">🔗 アプリURL</div>
+                    <div style="background:rgba(0,0,0,0.2);border-radius:10px;padding:1rem;text-align:center;">
+                        <div style="font-size:0.7rem;opacity:0.7;margin-bottom:0.375rem;">ブラウザでアクセス</div>
+                        <div style="font-size:0.85rem;font-weight:700;word-break:break-all;line-height:1.6;">
+                            https://aihara1089-creator<br>.github.io/ship-management/
+                        </div>
+                    </div>
+                    <div style="margin-top:0.875rem;font-size:0.78rem;opacity:0.75;text-align:center;">
+                        📱 スマホ・PCどちらからでもアクセス可能
+                    </div>
+                </div>
+                <div style="background:rgba(255,255,255,0.12);border-radius:16px;padding:1.25rem;flex:1;">
+                    <div style="font-size:0.85rem;font-weight:700;opacity:0.7;margin-bottom:0.75rem;letter-spacing:0.05em;">💡 次のステップ</div>
+                    <ul class="checklist" style="font-size:0.82rem;">
+                        <li>演習問題を全問解いてみる</li>
+                        <li>自分の業務データでシミュレーション</li>
+                        <li>用語辞典をカスタマイズ</li>
+                        <li>結果をCSVでエクスポート・活用</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="wave-deco" style="opacity:0.1;">
+        <svg viewBox="0 0 1440 120" preserveAspectRatio="none">
+            <path d="M0,60 C360,0 720,120 1080,60 C1260,30 1380,90 1440,60 L1440,120 L0,120 Z" fill="white"/>
+        </svg>
+    </div>
+</div>
+
+<!-- ========== スライド 14: END ========== -->
+<div class="slide bg-navy" id="s14">
+    <div class="corner-deco" style="background:var(--cyan);top:-100px;right:-100px;"></div>
+    <div class="corner-deco" style="background:var(--green);bottom:-150px;left:-100px;"></div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:3rem;position:relative;z-index:1;">
+        <span style="font-size:4rem;display:block;margin-bottom:1.5rem;filter:drop-shadow(0 0 30px rgba(0,170,255,0.4));">⚓</span>
+        <h2 style="font-size:clamp(2rem,4vw,3.5rem);font-weight:900;letter-spacing:-0.03em;margin-bottom:0.75rem;">
+            ご清聴ありがとうございました
+        </h2>
+        <p style="font-size:1rem;opacity:0.65;margin-bottom:2.5rem;">
+            質問・ご意見はお気軽にどうぞ
+        </p>
+        <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;">
+            <div style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:14px;padding:1rem 1.5rem;backdrop-filter:blur(10px);">
+                <div style="font-size:0.72rem;opacity:0.6;margin-bottom:0.25rem;">作成者</div>
+                <div style="font-weight:700;">TSOL-AIHARA</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:14px;padding:1rem 1.5rem;backdrop-filter:blur(10px);">
+                <div style="font-size:0.72rem;opacity:0.6;margin-bottom:0.25rem;">アプリURL</div>
+                <div style="font-weight:700;font-size:0.82rem;">aihara1089-creator.github.io<br>/ship-management/</div>
+            </div>
+        </div>
+    </div>
+    <div class="wave-deco">
+        <svg viewBox="0 0 1440 120" preserveAspectRatio="none">
+            <path d="M0,60 C360,120 720,0 1080,60 C1260,90 1380,30 1440,60 L1440,120 L0,120 Z" fill="white"/>
+        </svg>
+    </div>
+</div>
+
+</div><!-- /deck -->
+
+<!-- ナビゲーション -->
+<div class="keyboard-hint">
+    <kbd>←</kbd><kbd>→</kbd> または <kbd>Space</kbd> でスライドを移動
+</div>
+
+<div class="nav-btns">
+    <button class="nav-btn" id="prevBtn" onclick="prevSlide()"><i class="fas fa-chevron-left"></i></button>
+    <button class="nav-btn" id="nextBtn" onclick="nextSlide()"><i class="fas fa-chevron-right"></i></button>
+</div>
+
+<div class="slide-counter" id="counter">1 / 14</div>
+
+<div class="slide-dots" id="dots"></div>
+
+<script>
+const slides   = document.querySelectorAll('.slide');
+const total    = slides.length;
+let   current  = 0;
+
+// ドット生成
+const dotsEl = document.getElementById('dots');
+slides.forEach((_,i) => {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===0?' active':'');
+    d.onclick = () => goTo(i);
+    dotsEl.appendChild(d);
+});
+
+function goTo(n) {
+    if (n < 0 || n >= total) return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add('prev');
+    setTimeout(() => slides[current > n ? n+1 : current].classList.remove('prev'), 600);
+    current = n;
+    slides[current].classList.add('active');
+
+    // UI更新
+    document.querySelectorAll('.dot').forEach((d,i) => d.classList.toggle('active', i===current));
+    document.getElementById('counter').textContent = `${current+1} / ${total}`;
+    document.getElementById('progress').style.width = `${(current+1)/total*100}%`;
+    document.getElementById('prevBtn').disabled = current === 0;
+    document.getElementById('nextBtn').disabled = current === total-1;
+}
+
+function nextSlide() { goTo(current + 1); }
+function prevSlide() { goTo(current - 1); }
+
+// キーボード
+document.addEventListener('keydown', e => {
+    if (e.key==='ArrowRight'||e.key===' '||e.key==='ArrowDown') { e.preventDefault(); nextSlide(); }
+    if (e.key==='ArrowLeft'||e.key==='ArrowUp')                  { e.preventDefault(); prevSlide(); }
+    if (e.key==='Home') goTo(0);
+    if (e.key==='End')  goTo(total-1);
+});
+
+// スワイプ
+let tx = 0;
+document.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, {passive:true});
+document.addEventListener('touchend',   e => {
+    const dx = e.changedTouches[0].clientX - tx;
+    if (Math.abs(dx) > 50) { dx < 0 ? nextSlide() : prevSlide(); }
+}, {passive:true});
+
+// 初期化
+goTo(0);
+
+// 立方則チャート（スライド7）
+function initCubeChart() {
+    const ctx = document.getElementById('cubeChart');
+    if (!ctx) return;
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['10kt','12kt','15kt','18kt','20kt'],
+            datasets: [{
+                label: '燃料消費量（相対値）',
+                data: [23.1, 40.0, 77.9, 100, 137.0].map(v => v * 0.01 * 20009),
+                backgroundColor: ['#00c48c','#00c48c','#4a9eff','#ff5252','#ff5252'],
+                borderRadius: 8,
+            }]
+        },
+        options: {
+            responsive:true, maintainAspectRatio:false,
+            plugins:{ legend:{ display:false } },
+            scales:{
+                x:{ ticks:{ color:'rgba(255,255,255,0.7)', font:{size:11} }, grid:{ color:'rgba(255,255,255,0.05)' } },
+                y:{ ticks:{ color:'rgba(255,255,255,0.7)', font:{size:10}, callback: v=>`${Math.round(v).toLocaleString()}kg` }, grid:{ color:'rgba(255,255,255,0.08)' } }
+            }
+        }
+    });
+}
+initCubeChart();
+</script>
+</body>
+</html>
