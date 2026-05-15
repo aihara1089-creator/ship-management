@@ -296,12 +296,120 @@ function toast(msg, type='info') {
 }
 
 // ============================================================
+// 日本語列名 → 英語列名 マッピング
+// ============================================================
+const JP_TO_EN_COLUMNS = {
+  // 船舶情報
+  '造船所・建造ヤード':          'BUILDER_YARD',
+  '造船所建造ヤード':            'BUILDER_YARD',
+  '造船所':                     'BUILDER',
+  '建造ヤード':                  'YARD',
+  '船番':                       'BUILDERS_VESSEL_NUMBER',
+  '建造番号':                    'BUILDERS_VESSEL_NUMBER',
+  '船名':                       'VESSEL_NAME',
+  '船種':                       'VESSEL_TYPE',
+  '引渡前の保有・契約区分':       'OWNERSHIP_TYPE_BEFORE_DELIVERY',
+  '引渡前保有契約区分':           'OWNERSHIP_TYPE_BEFORE_DELIVERY',
+  '所有形態':                    'OWNERSHIP_TYPE_BEFORE_DELIVERY',
+  '使用状態':                    'VESSEL_STATUS_OF_USE',
+  '船舶状態':                    'VESSEL_STATUS_OF_USE',
+  '船籍国':                      'VESSEL_FLAG_STATE',
+  '船級':                        'VESSEL_CLASS_NAME',
+  '船籍港':                      'PORT_OF_REGISTRY',
+  'IMO番号':                     'IMO_NO',
+  'IMO No':                     'IMO_NO',
+  '全長(LOA)':                   'LOA',
+  '全長':                        'LOA',
+  '垂線間長(LPP)':               'LPP',
+  '垂線間長':                    'LPP',
+  '幅':                         'BEAM',
+  '深さ':                        'DEPTH',
+  '設計喫水':                    'DRAFT_DESIGN',
+  '満載喫水':                    'DRAFT_SCANTLING',
+  '総トン数':                    'GROSS_TON',
+  '純トン数':                    'NET_TON',
+  'DWT':                        'DWT_GUARANTEE_MT',
+  '計画速力':                    'PLANNED_SAILING_SPEED_KTS',
+  '主機出力':                    'MAIN_ENGINE_MAX_OUTPUT_KW',
+  '備考':                        'REMARKS_TECHNICAL_DIV',
+  // 工程スケジュール
+  '契約日':                      'SHIPBUILDING_CONTRUCT_DATE',
+  '起工予定日':                   'PLANNED_CONSTRUCTION_START_DATE',
+  '起工日':                      'CONSTRUCTION_START_DATE',
+  '進水予定日':                   'PLANNED_LAUNCH_DATE',
+  '進水日':                      'LAUNCH_DATE',
+  '海上公試予定':                 'PLANNED_SEA_TRIALS_DATE',
+  '海上公試予定日':               'PLANNED_SEA_TRIALS_DATE',
+  '海上公試日':                   'PLANNED_SEA_TRIALS_DATE',
+  '竣工予定日':                   'PLANNED_CONSTRUCTION_COMPLETE_DATE',
+  '完工予定日':                   'PLANNED_DATE_OF_BUILD_DATE',
+  '完工日':                      'PLANNED_DATE_OF_BUILD_DATE',
+  '契約引渡(From)':              'CONTRACT_DELIVERY_DATE_FROM',
+  '契約引渡From':                'CONTRACT_DELIVERY_DATE_FROM',
+  '引渡日(From)':                'CONTRACT_DELIVERY_DATE_FROM',
+  '引渡予定日':                   'CONTRACT_DELIVERY_DATE_FROM',
+  '契約引渡(To)':                'CONTRACT_DELIVERY_DATE_TO',
+  '契約引渡To':                  'CONTRACT_DELIVERY_DATE_TO',
+  '引渡日(To)':                  'CONTRACT_DELIVERY_DATE_TO',
+};
+
+// ヘッダー行を英語列名に統一する（日本語・英語どちらでもOK）
+function normalizeHeaders(headers) {
+  return headers.map(h => {
+    const trimmed = h.trim();
+    return JP_TO_EN_COLUMNS[trimmed] || trimmed;
+  });
+}
+
+// ============================================================
+// EXCEL PARSER (SheetJS使用)
+// ============================================================
+function parseExcel(buffer) {
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+
+  // シートをJSON配列に変換（1行目をヘッダーとして使用）
+  const jsonRows = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: '',
+    raw: false,  // 日付を文字列として取得
+    dateNF: 'yyyy/mm/dd',
+  });
+
+  if (jsonRows.length < 2) return [];
+
+  // ヘッダー行を正規化（日本語→英語）
+  const rawHeaders = jsonRows[0].map(h => String(h || '').trim());
+  const headers = normalizeHeaders(rawHeaders);
+
+  // データ行をオブジェクトに変換
+  const csvLines = [headers.join(',')];
+  for (let i = 1; i < jsonRows.length; i++) {
+    const row = jsonRows[i];
+    // 全列が空の行はスキップ
+    if (row.every(v => v === '' || v === null || v === undefined)) continue;
+    const cells = headers.map((_, j) => {
+      let val = String(row[j] || '').trim();
+      // カンマ・ダブルクォートを含む場合はクォートで囲む
+      if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+        val = '"' + val.replace(/"/g, '""') + '"';
+      }
+      return val;
+    });
+    csvLines.push(cells.join(','));
+  }
+  return parseCSV(csvLines.join('\n'));
+}
+
+// ============================================================
 // CSV PARSER
 // ============================================================
 function parseCSV(text) {
   const lines = text.split(/\r?\n/);
   if (lines.length < 2) return [];
-  const headers = splitCSVLine(lines[0]);
+  // 日本語列名も英語に正規化
+  const headers = normalizeHeaders(splitCSVLine(lines[0]));
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -1551,6 +1659,44 @@ async function loadSampleData() {
 // ============================================================
 // MAIN LOAD
 // ============================================================
+
+// Excel から parseExcel() でパース済みの行配列を直接受け取って描画する
+async function _loadParsedRows(rows) {
+  try {
+    loadOrderStatusStore();
+    allData = rows;
+    if (allData.length === 0) { toast('データが見つかりませんでした', 'error'); return; }
+
+    filtered = [...allData];
+    Object.keys(filterState).forEach(k => filterState[k].clear());
+    const stats = analyzeData(allData);
+
+    document.getElementById('uploadSection').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+
+    renderKPI(allData, stats);
+    renderBanner(allData);
+    renderCharts(stats);
+    ganttRange.from = null; ganttRange.to = null;
+    document.querySelectorAll('.gantt-quick-btn').forEach(b => b.classList.remove('active'));
+    const allBtn = document.querySelector('.gantt-quick-btn[data-months="0"]');
+    if (allBtn) allBtn.classList.add('active');
+    initGanttRangeInputs();
+    renderGantt(allData);
+    buildFilters(allData);
+    buildColToggle();
+    renderActiveFiltersBar();
+    renderOrderStatusPanel();
+    sortKey = '_status'; sortDir = 1;
+    applySort();
+    renderTable();
+    toast(`${allData.length} 隻のデータを読み込みました`, 'success');
+  } catch(e) {
+    console.error(e);
+    toast('データの読み込みに失敗しました: ' + e.message, 'error');
+  }
+}
+
 async function loadData(csvText, { skipServerSave = false } = {}) {
   try {
     // 最新の受注状態を読み直す（メモリ・localStorage・サーバーを全マージ）
@@ -1667,10 +1813,31 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // File input
-  const csvInput = document.getElementById('csvInput');
-  csvInput.addEventListener('change', e => {
-    const file = e.target.files[0];
+  // ファイル読み込みの共通処理（CSV・Excel両対応）
+  function handleFile(file) {
     if (!file) return;
+    const name = file.name.toLowerCase();
+
+    // Excel (.xlsx / .xls)
+    if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const data = new Uint8Array(ev.target.result);
+          const rows = parseExcel(data);
+          if (!rows.length) { toast('Excelにデータが見つかりませんでした', 'error'); return; }
+          // parseExcel が既に行オブジェクト配列を返すので直接使う
+          _loadParsedRows(rows);
+        } catch(e) {
+          console.error(e);
+          toast('Excelの読み込みに失敗しました: ' + e.message, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
+    // CSV (UTF-8 → Shift-JIS フォールバック)
     const reader = new FileReader();
     reader.onload = ev => loadData(ev.target.result);
     reader.onerror = () => {
@@ -1679,6 +1846,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       r2.readAsText(file, 'Shift_JIS');
     };
     reader.readAsText(file, 'UTF-8');
+  }
+
+  const csvInput = document.getElementById('csvInput');
+  csvInput.addEventListener('change', e => {
+    handleFile(e.target.files[0]);
   });
 
   // Drag & Drop
@@ -1691,10 +1863,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   dropZone.addEventListener('drop', e => {
     const file = e.dataTransfer.files[0];
-    if (!file || !file.name.endsWith('.csv')) { toast('CSVファイルを選択してください','error'); return; }
-    const reader = new FileReader();
-    reader.onload = ev => loadData(ev.target.result);
-    reader.readAsText(file, 'UTF-8');
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.csv') && !name.endsWith('.xlsx') && !name.endsWith('.xls')) {
+      toast('CSV または Excel ファイルを選択してください', 'error');
+      return;
+    }
+    handleFile(file);
   });
 
   // Sample data

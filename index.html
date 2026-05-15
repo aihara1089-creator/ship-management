@@ -14,6 +14,9 @@
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 
+  <!-- SheetJS (Excel読み込み用) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
   <!-- App CSS -->
   <link rel="stylesheet" href="css/style.css" />
 </head>
@@ -39,14 +42,16 @@
 <!-- ===== UPLOAD SECTION ===== -->
 <section class="upload-section" id="uploadSection">
   <div class="upload-card" id="dropZone">
-    <div class="upload-icon"><i class="fas fa-file-csv"></i></div>
-    <h2>CSVファイルをインポート</h2>
-    <p>船舶管理リストのCSVをドラッグ＆ドロップ、または選択してください</p>
+    <div class="upload-icon"><i class="fas fa-file-excel"></i></div>
+    <h2>ファイルをインポート</h2>
+    <p>船舶管理リストのExcel・CSVをドラッグ＆ドロップ、または選択してください</p>
     <label class="btn-upload" for="csvInput">
       <i class="fas fa-folder-open"></i> ファイルを選択
     </label>
-    <input type="file" id="csvInput" accept=".csv" hidden />
-    <p class="upload-hint">対応形式：CSV（UTF-8 / Shift-JIS）</p>
+    <input type="file" id="csvInput" accept=".csv,.xlsx,.xls" hidden />
+    <p class="upload-hint">対応形式：Excel（.xlsx / .xls）・CSV（UTF-8 / Shift-JIS）<br>
+      <span style="font-size:.78rem;color:var(--slate-400);">※ 日本語列名・英語列名どちらにも対応</span>
+    </p>
     <div class="upload-user-row">
       <label for="userName" style="font-size:.85rem;color:var(--slate-500);margin-right:6px;"><i class="fas fa-user"></i> あなたの名前（共有表示用）：</label>
       <input type="text" id="userName" placeholder="例：田中" maxlength="20"
