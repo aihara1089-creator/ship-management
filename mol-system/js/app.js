@@ -232,33 +232,57 @@ const MDD_DEFS = [
 function parseDate(str) {
   if (!str || str.trim() === '' || str.trim() === '-') return null;
 
-  // 複数日程が混在する場合（例: "2027/4/SH(MGO) 2027/6/FH(GAS)"）→ 最初の年月を抽出
-  // まず先頭の yyyy/mm または yyyy/mm/dd パターンを探す
-  const firstDate = str.match(/(\d{4})[\/-](\d{1,2})(?:[\/-](\d{1,2}))?/);
-  if (!firstDate) return null;
+  // ---- Step1: 先頭の yyyy/mm/dd または yyyy-mm-dd を厳密に取得 ----
+  // 「2026/07-12-22」のようなハイフン混在は
+  //   /(\d{4})[\/-](\d{1,2})(?:[\/-](\d{1,2}))?/ だと
+  //   month=7, day=12 と誤解析されるので、
+  //   セパレータを統一してから処理する
+  const s = str.trim();
 
-  const year  = +firstDate[1];
-  const month = +firstDate[2];
-  let   day   = firstDate[3] ? +firstDate[3] : null;
+  // yyyy/mm/dd または yyyy-mm-dd の純粋な形式を最優先で探す
+  // 後方参照 \2 でセパレータを統一チェック → 2026/07-12-22 のような混在は除外
+  const isoMatch = s.match(/(\d{4})([\/-])(\d{1,2})\2(\d{1,2})/);
+  // yyyy/mm または yyyy-mm（日なし）も探す
+  const ymMatch  = s.match(/(\d{4})[\/-](\d{1,2})/);
 
-  // 日部分が数字でない場合（FH/MD/SH/MGO 等）は無視
-  if (day !== null && isNaN(day)) day = null;
+  if (!ymMatch) return null;
 
-  // FH=上旬(1日), MD=中旬(15日), SH=下旬(25日) のキーワード解釈
-  if (day === null) {
-    const upper = str.toUpperCase();
-    if      (upper.includes('FH')) day = 1;
-    else if (upper.includes('MD')) day = 15;
-    else if (upper.includes('SH')) day = 25;
-    else                           day = 1;  // 月だけの場合は月初
+  const year  = +ymMatch[1];
+  const month = +ymMatch[2];
+  if (year < 2000 || year > 2100 || month < 1 || month > 12) return null;
+
+  let day = null;
+
+  // isoMatch グループ: [1]=year, [2]=セパレータ(後方参照用), [3]=month, [4]=day
+  if (isoMatch && +isoMatch[1] === year && +isoMatch[3] === month) {
+    // yyyy/mm/dd 形式が取れた場合
+    const d = +isoMatch[4];
+    // 1〜31 の有効な日かチェック（範囲「03-09」の先頭誤取得を防ぐ）
+    if (!isNaN(d) && d >= 1 && d <= 31) {
+      day = d;
+    }
   }
 
-  // 範囲表記（例: "2026/07-12-22" → 7月12〜22日）→ 範囲の開始日を使用
-  // すでに firstDate で先頭を取得済みなので追加処理不要
+  // 日が取れなかった場合 → FH/MD/SH キーワードで補完
+  if (day === null) {
+    // 年月部分より後の文字列でキーワードを探す
+    // 例: "2027/4/SH(MGO) 2027/6/FH(GAS)" → afterYM="/SH(MGO) 2027/6/FH(GAS)"
+    // includes()だと後方のキーワードに引きずられるため、indexOf()で最も先頭に近いものを優先
+    const afterYM = s.slice(ymMatch.index + ymMatch[0].length).toUpperCase();
+    const posFH = afterYM.indexOf('FH');
+    const posMD = afterYM.indexOf('MD');
+    const posSH = afterYM.indexOf('SH');
+    const candidates = [
+      { day: 1,  pos: posFH < 0 ? Infinity : posFH },
+      { day: 15, pos: posMD < 0 ? Infinity : posMD },
+      { day: 25, pos: posSH < 0 ? Infinity : posSH },
+    ];
+    const nearest = candidates.reduce((a, b) => a.pos <= b.pos ? a : b);
+    day = (nearest.pos === Infinity) ? 1 : nearest.day;  // どれもなければ月初
+  }
 
-  if (year < 2000 || year > 2100 || month < 1 || month > 12) return null;
-  const clamped = Math.min(day, new Date(year, month, 0).getDate()); // 月末を超えないよう調整
-  return new Date(year, month - 1, clamped);
+  const maxDay = new Date(year, month, 0).getDate();
+  return new Date(year, month - 1, Math.min(day, maxDay));
 }
 
 function formatDate(d, fallback='—') {
@@ -285,9 +309,15 @@ function getNextMilestoneDate(row) {
 }
 
 function getDeliveryDate(row) {
+  // 優先順位:
+  // 1. 契約引渡日 (CONTRACT_DELIVERY_DATE_FROM/TO)
+  // 2. 完工予定日 (PLANNED_DATE_OF_BUILD_DATE)  ← col9
+  // 3. 竣工予定日 (PLANNED_CONSTRUCTION_COMPLETE_DATE) ← col8
+  //    ※ FY26.xlsxでは約半数のデータがcol9なしでcol8のみ持つため必須
   return row._dates['CONTRACT_DELIVERY_DATE_FROM']
       || row._dates['CONTRACT_DELIVERY_DATE_TO']
-      || row._dates['PLANNED_DATE_OF_BUILD_DATE'];
+      || row._dates['PLANNED_DATE_OF_BUILD_DATE']
+      || row._dates['PLANNED_CONSTRUCTION_COMPLETE_DATE'];
 }
 
 function daysLabel(days) {
@@ -462,8 +492,17 @@ function parseExcel(buffer) {
     });
 
     // VESSEL_UID がなければ BUILDERS_VESSEL_NUMBER か VESSEL_NAME で代用
+    // 「未定」等の重複名は行番号を付加してUID衝突を防ぐ
     if (!obj.VESSEL_UID) {
-      obj.VESSEL_UID = obj.BUILDERS_VESSEL_NUMBER || obj.VESSEL_NAME || `row_${ri}`;
+      const base = obj.BUILDERS_VESSEL_NUMBER || obj.VESSEL_NAME || `row_${ri}`;
+      obj.VESSEL_UID = base;
+    }
+    // 船名が「未定」等の汎用名の場合、BUILDERS_VESSEL_NUMBER+行番号で一意化
+    if (!obj.BUILDERS_VESSEL_NUMBER && obj.VESSEL_NAME === '未定') {
+      obj.VESSEL_UID = `未定_row${ri}`;
+    } else if (obj.BUILDERS_VESSEL_NUMBER && !obj.VESSEL_UID.includes(obj.BUILDERS_VESSEL_NUMBER)) {
+      // BUILDERS_VESSEL_NUMBER が取れている場合はそちらを優先してUID設定
+      obj.VESSEL_UID = obj.BUILDERS_VESSEL_NUMBER;
     }
 
     dataRows.push(obj);
