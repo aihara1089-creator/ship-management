@@ -16,48 +16,78 @@ const DAYS_90  = 90  * 86400000;
 const DAYS_180 = 180 * 86400000;
 
 // ============================================================
-// ORDER STATUS — localStorage を正とする設計
-// Shape: { [vesselUID]: { status, quoteDate, orderedDate, note, notBoarded } }
+// ORDER STATUS — サーバー共有設計
+// 保存: メモリ → localStorage → サーバー（全員に共有）
+// 読込: サーバーに1件でもデータがあればサーバー優先でマージ
+//       サーバーが空/オフラインならlocalStorageにフォールバック
+// Shape: { [vesselUID]: { status, quoteDate, orderedDate, note, notBoarded, updatedAt } }
 // ============================================================
 let orderStatusStore = {};
 
-// サーバーが使えるかどうかを初回チェック（write-only用）
 let _useServer = false;
 async function detectServer() {
   try {
-    const r = await fetch('/api/order-status', { signal: AbortSignal.timeout(2000) });
+    const r = await fetch('/api/order-status', { signal: AbortSignal.timeout(3000) });
     _useServer = r.ok;
   } catch(e) { _useServer = false; }
 }
 
-// localStorage から読み込む（これだけが正のデータソース）
-function loadOrderStatusStore() {
-  try {
-    const raw = localStorage.getItem('molShipOrderStatus_v1');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      // 既存メモリと統合（メモリの方が新しければ維持）
-      orderStatusStore = { ...parsed, ...orderStatusStore };
-    }
-  } catch(e) { /* 読み込み失敗時はメモリのまま */ }
-}
-
-// localStorage に書き込む（全保存操作の共通出口）
+// localStorage に書き込む
 function _saveLocalStorage() {
   try { localStorage.setItem('molShipOrderStatus_v1', JSON.stringify(orderStatusStore)); } catch(e) {}
 }
 
-// 1件保存：メモリ → localStorage → サーバー(fire-and-forget)
+// updatedAt で新しい方を採用するマージ
+function _mergeRecord(existing, incoming) {
+  if (!existing) return incoming;
+  const tExist = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+  const tIncom = incoming.updatedAt ? new Date(incoming.updatedAt).getTime() : 0;
+  return tIncom > tExist ? incoming : existing;
+}
+
+// 起動時・手動同期時: localStorage読込 → サーバーがあればマージ
+async function loadOrderStatusStore() {
+  // 1. localStorageを読む
+  try {
+    const raw = localStorage.getItem('molShipOrderStatus_v1');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      orderStatusStore = { ...parsed, ...orderStatusStore };
+    }
+  } catch(e) {}
+
+  // 2. サーバーにデータがあればマージ（空なら無視してlocalStorageを維持）
+  if (_useServer) {
+    try {
+      const r = await fetch('/api/order-status', { signal: AbortSignal.timeout(4000) });
+      const j = await r.json();
+      if (j.ok && j.data && Object.keys(j.data).length > 0) {
+        // サーバーに1件でもあればマージ（新しい方を採用）
+        for (const [key, rec] of Object.entries(j.data)) {
+          orderStatusStore[key] = _mergeRecord(orderStatusStore[key], rec);
+        }
+        // マージ結果をlocalStorageに保存
+        _saveLocalStorage();
+      }
+      // サーバーが空({})なら何もしない → localStorageのデータを維持
+    } catch(e) {
+      console.warn('サーバー読み込み失敗、localStorageを使用:', e.message);
+    }
+  }
+}
+
+// 1件保存: メモリ → localStorage → サーバー（全員に共有）
 function saveOrderStatusRecord(key, record) {
   if (!key) return;
-  orderStatusStore[key] = { ...record };
+  const recWithTs = { ...record, updatedAt: new Date().toISOString() };
+  orderStatusStore[key] = recWithTs;
   _saveLocalStorage();
-  // サーバーにはバックグラウンドで送るだけ（失敗しても影響なし）
+  // サーバーにも保存（他のユーザーと共有）
   if (_useServer) {
     fetch('/api/order-status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, ...record }),
+      body: JSON.stringify({ key, ...recWithTs }),
     }).catch(() => {});
   }
 }
@@ -1442,94 +1472,42 @@ function exportCSV() {
 // ============================================================
 // LOCAL → SERVER RESTORE
 // ============================================================
-async function _restoreLocalToServer() {
-  // localStorageから直接読む（orderStatusStoreはすでにマージ済みだが念のため）
-  let localData = {};
-  try {
-    const raw = localStorage.getItem('molShipOrderStatus_v1');
-    if (raw) localData = JSON.parse(raw);
-  } catch(e) { return; }
 
-  const localKeys = Object.keys(localData).filter(k => {
-    const rec = localData[k];
-    return rec && rec.status && rec.status !== 'other';
-  });
-
-  if (localKeys.length === 0) return; // 保存済みデータなし
-
-  if (_useServer) {
-    // サーバーに存在しないキーを自動アップロード
-    try {
-      const serverRes = await fetch('/api/order-status');
-      const serverJson = await serverRes.json();
-      const serverKeys = serverJson.ok ? Object.keys(serverJson.data || {}) : [];
-      const missingKeys = localKeys.filter(k => !serverKeys.includes(k));
-      if (missingKeys.length > 0) {
-        const uploadPromises = missingKeys.map(key =>
-          fetch('/api/order-status', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key, ...localData[key] }),
-          }).catch(() => {})
-        );
-        await Promise.all(uploadPromises);
-        console.log(`localStorageから${missingKeys.length}件の受注状態をサーバーに自動復元しました`);
-        toast(`${missingKeys.length}件の受注状態をサーバーに自動復元しました`, 'success');
-      }
-    } catch(e) {
-      console.warn('サーバーへの自動復元に失敗:', e);
-      // 失敗した場合は手動復元UIを表示
-      _showLocalRestoreUI(localData, localKeys);
-    }
-  } else {
-    // サーバーなし→手動復元UIも不要（localStorageから直接使う）
-  }
-}
-
-// 手動復元UI表示（サーバーへの自動復元が失敗した場合）
-function _showLocalRestoreUI(localData, localKeys) {
-  const area = document.getElementById('localRestoreArea');
-  const countEl = document.getElementById('localRestoreCount');
-  if (!area || !countEl) return;
-
-  const quoteCount = localKeys.filter(k => localData[k].status === 'quote').length;
-  const orderedCount = localKeys.filter(k => localData[k].status === 'ordered').length;
-  countEl.textContent = `見積提出済み: ${quoteCount}件、受注済み: ${orderedCount}件（合計${localKeys.length}件）`;
-  area.style.display = 'block';
-
-  document.getElementById('btnRestoreToServer')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btnRestoreToServer');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 復元中...'; }
-    try {
-      const uploads = localKeys.map(key =>
-        fetch('/api/order-status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key, ...localData[key] }),
-        }).catch(() => {})
-      );
-      await Promise.all(uploads);
-      area.style.display = 'none';
-      toast(`${localKeys.length}件の受注状態をサーバーに復元しました`, 'success');
-    } catch(e) {
-      toast('復元に失敗しました。再度お試しください。', 'error');
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> サーバーに復元する'; }
-    }
-  });
-
-  document.getElementById('btnIgnoreLocal')?.addEventListener('click', () => {
-    area.style.display = 'none';
-  });
-}
 
 // ============================================================
 // SHARED SERVER SYNC
-// ポーリングは廃止（サーバーが揮発してlocalStorageを上書きする原因だったため）
-// サーバーへはwrite-onlyで送るだけ。読み込みはlocalStorageのみ。
+// ポーリングなし・手動「今すぐ同期」ボタンで同期
 // ============================================================
 function startPolling() { /* 無効化 */ }
 function stopPolling()  { /* 無効化 */ }
-async function syncFromServer() { /* 無効化 */ }
+
+// 手動同期: サーバーから最新データを取得してマージ・再描画
+async function syncFromServer() {
+  if (!_useServer) {
+    toast('共有サーバーに接続できません', 'warn');
+    return;
+  }
+  try {
+    const r = await fetch('/api/order-status', { signal: AbortSignal.timeout(4000) });
+    const j = await r.json();
+    if (j.ok && j.data && Object.keys(j.data).length > 0) {
+      for (const [key, rec] of Object.entries(j.data)) {
+        orderStatusStore[key] = _mergeRecord(orderStatusStore[key], rec);
+      }
+      _saveLocalStorage();
+      // 再描画
+      const stats = analyzeData(allData);
+      renderKPI(allData, stats);
+      if (allData.length) renderGantt(filtered.length ? filtered : allData);
+      renderTable();
+      toast('最新データに同期しました', 'success');
+    } else {
+      toast('サーバーにデータがありません', 'warn');
+    }
+  } catch(e) {
+    toast('同期に失敗しました', 'error');
+  }
+}
 
 // ============================================================
 // SAMPLE DATA
@@ -1634,12 +1612,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const userNameEl = document.getElementById('userName');
   if (savedName && userNameEl) userNameEl.value = savedName;
 
-  // サーバー検出 → 受注状態読み込み（localStorageのみ・同期）
+  // サーバー検出 → localStorage読込 → サーバーにデータがあればマージ
   await detectServer();
-  loadOrderStatusStore();
-
-  // localStorageに受注状態データがあるか確認し、サーバーに復元
-  await _restoreLocalToServer();
+  await loadOrderStatusStore();
 
   // サーバーに保存済み CSV があれば自動ロード
   if (_useServer) {
@@ -1676,9 +1651,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       badge.innerHTML = '<i class="fas fa-users"></i> 共有モード';
       badge.addEventListener('click', async () => {
         badge.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 同期中...';
-        syncFromServer();
+        await syncFromServer();
         badge.innerHTML = '<i class="fas fa-users"></i> 共有モード';
-        toast('受注状態を同期しました（localStorageから）', 'success');
       });
       meta.insertBefore(badge, meta.firstChild);
     }

@@ -48,9 +48,9 @@ app.get('/api/order-status', (req, res) => {
   res.json({ ok: true, data });
 });
 
-// POST /api/order-status  body: { key, status, quoteDate, orderedDate, note }
+// POST /api/order-status  body: { key, status, quoteDate, orderedDate, note, notBoarded }
 app.post('/api/order-status', (req, res) => {
-  const { key, status, quoteDate, orderedDate, note } = req.body;
+  const { key, status, quoteDate, orderedDate, note, notBoarded } = req.body;
   if (!key) return res.status(400).json({ ok: false, error: 'key is required' });
 
   const store = readJSON(ORDER_STATUS_FILE, {});
@@ -59,6 +59,7 @@ app.post('/api/order-status', (req, res) => {
     quoteDate:   quoteDate   || '',
     orderedDate: orderedDate || '',
     note:        note        || '',
+    notBoarded:  notBoarded  || false,
     updatedAt:   new Date().toISOString(),
   };
   writeJSON(ORDER_STATUS_FILE, store);
