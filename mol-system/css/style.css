@@ -730,6 +730,13 @@ body {
 .vessel-table tbody tr:hover { background: var(--blue-50); }
 .vessel-table tbody tr.row-urgent { background: #fff5f5; }
 .vessel-table tbody tr.row-warning { background: #fffbeb; }
+/* 引き渡し半年以内 — 赤ハイライト */
+.vessel-table tbody tr.row-delivery-soon {
+  background: #fee2e2;
+  border-left: 4px solid #ef4444;
+}
+.vessel-table tbody tr.row-delivery-soon:hover { background: #fecaca; }
+.vessel-table tbody tr.row-delivery-soon td { color: #7f1d1d; font-weight: 500; }
 /* 非搭載行 — テーブル */
 .vessel-table tbody tr.row-not-boarded {
   background: #f1f5f9;

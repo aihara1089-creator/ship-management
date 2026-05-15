@@ -1044,8 +1044,16 @@ function buildTableRows(rows) {
     const next = getNextMilestoneDate(r);
     const days = next ? diffDays(next.date) : null;
     const st   = daysStatus(days);
-    // 非搭載はグレーアウトを最優先，それ以外は絷急/注意
-    let rowCls = nb ? 'row-not-boarded' : (st==='urgent' ? 'row-urgent' : st==='warning' ? 'row-warning' : '');
+
+    // 引き渡し日が半年（180日）以内かどうか
+    const delDate = getDeliveryDate(r);
+    const delDays = delDate ? diffDays(delDate) : null;
+    const deliverySoon = delDays !== null && delDays >= 0 && delDays <= 180;
+
+    // 非搭載はグレーアウト最優先、引き渡し半年以内は赤、それ以外は緊急/注意
+    let rowCls = nb ? 'row-not-boarded'
+               : deliverySoon ? 'row-delivery-soon'
+               : (st==='urgent' ? 'row-urgent' : st==='warning' ? 'row-warning' : '');
 
     let statusBadge = '';
     if (nb) {
