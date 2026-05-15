@@ -231,16 +231,34 @@ const MDD_DEFS = [
 // ============================================================
 function parseDate(str) {
   if (!str || str.trim() === '' || str.trim() === '-') return null;
-  const s = str.trim().replace(/\//g,'-').replace(/年/g,'-').replace(/月/g,'-').replace(/日/g,'');
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (m) return new Date(+m[1], +m[2]-1, +m[3]);
-  m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
-  if (m) return new Date(+m[1], +m[2]-1, +m[3]);
-  m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-  if (m) return new Date(+m[3], +m[1]-1, +m[2]);
-  m = s.match(/^(\d{4})-(\d{1,2})$/);
-  if (m) return new Date(+m[1], +m[2]-1, 1);
-  return null;
+
+  // 複数日程が混在する場合（例: "2027/4/SH(MGO) 2027/6/FH(GAS)"）→ 最初の年月を抽出
+  // まず先頭の yyyy/mm または yyyy/mm/dd パターンを探す
+  const firstDate = str.match(/(\d{4})[\/-](\d{1,2})(?:[\/-](\d{1,2}))?/);
+  if (!firstDate) return null;
+
+  const year  = +firstDate[1];
+  const month = +firstDate[2];
+  let   day   = firstDate[3] ? +firstDate[3] : null;
+
+  // 日部分が数字でない場合（FH/MD/SH/MGO 等）は無視
+  if (day !== null && isNaN(day)) day = null;
+
+  // FH=上旬(1日), MD=中旬(15日), SH=下旬(25日) のキーワード解釈
+  if (day === null) {
+    const upper = str.toUpperCase();
+    if      (upper.includes('FH')) day = 1;
+    else if (upper.includes('MD')) day = 15;
+    else if (upper.includes('SH')) day = 25;
+    else                           day = 1;  // 月だけの場合は月初
+  }
+
+  // 範囲表記（例: "2026/07-12-22" → 7月12〜22日）→ 範囲の開始日を使用
+  // すでに firstDate で先頭を取得済みなので追加処理不要
+
+  if (year < 2000 || year > 2100 || month < 1 || month > 12) return null;
+  const clamped = Math.min(day, new Date(year, month, 0).getDate()); // 月末を超えないよう調整
+  return new Date(year, month - 1, clamped);
 }
 
 function formatDate(d, fallback='—') {
@@ -363,43 +381,95 @@ function normalizeHeaders(headers) {
 
 // ============================================================
 // EXCEL PARSER (SheetJS使用)
+// 対応フォーマット:
+//   - 新造船の工程スケジュール_FY**.xlsx
+//     → 1〜2行目: タイトル・注意書き（スキップ）
+//     → 3行目: ヘッダー行（英語列名 or 日本語列名）
+//     → A列（1列目）: 常に空白（スキップ）
+//   - 通常のCSV的Excel（1行目がヘッダー）にも対応
 // ============================================================
 function parseExcel(buffer) {
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
 
-  // シートをJSON配列に変換（1行目をヘッダーとして使用）
+  // 全行を raw 文字列として取得
   const jsonRows = XLSX.utils.sheet_to_json(sheet, {
     header: 1,
     defval: '',
-    raw: false,  // 日付を文字列として取得
+    raw: false,
     dateNF: 'yyyy/mm/dd',
   });
 
   if (jsonRows.length < 2) return [];
 
-  // ヘッダー行を正規化（日本語→英語）
-  const rawHeaders = jsonRows[0].map(h => String(h || '').trim());
+  // ---- ヘッダー行を自動検出 ----
+  // 「VESSEL_NAME」「船名」「BUILDER_YARD」等を含む行をヘッダーとみなす
+  const HEADER_KEYWORDS = [
+    'VESSEL_NAME', 'VESSEL_TYPE', 'BUILDER_YARD', 'BUILDERS_VESSEL_NUMBER',
+    '船名', '船種', '造船所', '船番',
+    'PLANNED_SEA_TRIALS_DATE', 'PLANNED_DATE_OF_BUILD_DATE',
+    '海上公試予定', '竣工予定日', '完工予定日',
+  ];
+  let headerRowIdx = 0;
+  for (let i = 0; i < Math.min(jsonRows.length, 6); i++) {
+    const rowStr = jsonRows[i].map(v => String(v || '').trim()).join('|');
+    if (HEADER_KEYWORDS.some(kw => rowStr.includes(kw))) {
+      headerRowIdx = i;
+      break;
+    }
+  }
+
+  // ヘッダー行を取得・正規化（日本語→英語、全角スペース除去）
+  const rawHeaders = jsonRows[headerRowIdx].map(h =>
+    String(h || '').trim().replace(/\u3000/g, '').replace(/　/g, '')
+  );
   const headers = normalizeHeaders(rawHeaders);
 
-  // データ行をオブジェクトに変換
-  const csvLines = [headers.join(',')];
-  for (let i = 1; i < jsonRows.length; i++) {
-    const row = jsonRows[i];
-    // 全列が空の行はスキップ
-    if (row.every(v => v === '' || v === null || v === undefined)) continue;
-    const cells = headers.map((_, j) => {
-      let val = String(row[j] || '').trim();
-      // カンマ・ダブルクォートを含む場合はクォートで囲む
-      if (val.includes(',') || val.includes('"') || val.includes('\n')) {
-        val = '"' + val.replace(/"/g, '""') + '"';
-      }
-      return val;
+  // 全て空・または空白のみの列インデックスを除外
+  const validColIdxs = headers
+    .map((h, i) => ({ h, i }))
+    .filter(({ h }) => h !== '' && h !== 'null' && h !== 'undefined')
+    .map(({ i }) => i);
+
+  const validHeaders = validColIdxs.map(i => headers[i]);
+
+  // データ行をパース（ヘッダー行の次から）
+  const dataRows = [];
+  for (let ri = headerRowIdx + 1; ri < jsonRows.length; ri++) {
+    const row = jsonRows[ri];
+
+    // 有効列の値を取得
+    const vals = validColIdxs.map(ci => {
+      const v = String(row[ci] !== undefined ? row[ci] : '').trim();
+      return v.replace(/\u3000/g, ' ').replace(/　/g, ' '); // 全角スペースを半角に
     });
-    csvLines.push(cells.join(','));
+
+    // 全列空ならスキップ
+    if (vals.every(v => v === '' || v === '-')) continue;
+
+    // 行オブジェクト生成
+    const obj = {};
+    validHeaders.forEach((h, j) => { obj[h] = vals[j]; });
+
+    // 日付パース
+    obj._dates = {};
+    DATE_KEYS.forEach(k => {
+      if (obj[k]) {
+        const d = parseDate(obj[k]);
+        if (d) obj._dates[k] = d;
+      }
+    });
+
+    // VESSEL_UID がなければ BUILDERS_VESSEL_NUMBER か VESSEL_NAME で代用
+    if (!obj.VESSEL_UID) {
+      obj.VESSEL_UID = obj.BUILDERS_VESSEL_NUMBER || obj.VESSEL_NAME || `row_${ri}`;
+    }
+
+    dataRows.push(obj);
   }
-  return parseCSV(csvLines.join('\n'));
+
+  return dataRows;
 }
 
 // ============================================================
