@@ -20,9 +20,35 @@ const DAYS_180 = 180 * 86400000;
 // 保存: メモリ → localStorage → サーバー（全員に共有）
 // 読込: サーバーに1件でもデータがあればサーバー優先でマージ
 //       サーバーが空/オフラインならlocalStorageにフォールバック
-// Shape: { [vesselUID]: { status, quoteDate, orderedDate, note, notBoarded, updatedAt } }
+// Shape: { [vesselUID]: { status, quoteDate, orderedDate, note, notBoarded, assignee, updatedAt, updatedBy } }
 // ============================================================
 let orderStatusStore = {};
+
+// ============================================================
+// CHANGE LOG — 変更履歴ログ
+// Shape: [{ ts, by, vesselName, field, oldVal, newVal }]
+// ============================================================
+let changeLog = [];
+const CHANGE_LOG_MAX = 200; // 最大保持件数
+
+function _saveChangeLog() {
+  try { localStorage.setItem('molShipChangeLog_v1', JSON.stringify(changeLog.slice(-CHANGE_LOG_MAX))); } catch(e) {}
+}
+function _loadChangeLog() {
+  try {
+    const raw = localStorage.getItem('molShipChangeLog_v1');
+    if (raw) changeLog = JSON.parse(raw);
+  } catch(e) {}
+}
+
+function logChange(vesselName, field, oldVal, newVal) {
+  const nameEl = document.getElementById('userName');
+  const by = (nameEl && nameEl.value.trim()) || localStorage.getItem('molShipUserName') || '不明';
+  const entry = { ts: new Date().toISOString(), by, vesselName, field, oldVal, newVal };
+  changeLog.push(entry);
+  _saveChangeLog();
+  renderChangeLog();
+}
 
 let _useServer = false;
 async function detectServer() {
@@ -79,10 +105,24 @@ async function loadOrderStatusStore() {
 // 1件保存: メモリ → localStorage → サーバー（全員に共有）
 function saveOrderStatusRecord(key, record) {
   if (!key) return;
-  const recWithTs = { ...record, updatedAt: new Date().toISOString() };
+  const nameEl = document.getElementById('userName');
+  const by = (nameEl && nameEl.value.trim()) || localStorage.getItem('molShipUserName') || '不明';
+  const recWithTs = { ...record, updatedAt: new Date().toISOString(), updatedBy: by };
+
+  // 変更ログ: 旧レコードと比較して変わったフィールドを記録
+  const old = orderStatusStore[key] || {};
+  const vesselRow = allData.find(r => getVesselKey(r) === key);
+  const vesselName = vesselRow ? (vesselRow.VESSEL_NAME || key) : key;
+  const FIELD_LABELS = { status:'受注状態', quoteDate:'見積提出日', orderedDate:'受注日', note:'メモ', notBoarded:'非搭載', assignee:'担当者' };
+  const STATUS_LABELS = { other:'—', quote:'見積提出済み', ordered:'受注済み' };
+  Object.keys(FIELD_LABELS).forEach(f => {
+    const o = f === 'status' ? (STATUS_LABELS[old[f]] || old[f] || '—') : String(old[f] ?? '');
+    const n = f === 'status' ? (STATUS_LABELS[record[f]] || record[f] || '—') : String(record[f] ?? '');
+    if (o !== n) logChange(vesselName, FIELD_LABELS[f], o, n);
+  });
+
   orderStatusStore[key] = recWithTs;
   _saveLocalStorage();
-  // サーバーにも保存（他のユーザーと共有）
   if (_useServer) {
     fetch('/api/order-status', {
       method: 'POST',
@@ -125,7 +165,7 @@ function getOrderStatus(row) {
 
 function getOrderStatusRecord(row) {
   const key = getVesselKey(row);
-  const base = { status: 'other', quoteDate: '', orderedDate: '', note: '', notBoarded: false };
+  const base = { status: 'other', quoteDate: '', orderedDate: '', note: '', notBoarded: false, assignee: '' };
   return orderStatusStore[key] ? { ...base, ...orderStatusStore[key] } : base;
 }
 
@@ -210,20 +250,27 @@ let ganttRange = { from: null, to: null };
 // Filter state
 const filterState = {
   type:        new Set(),
+  builder:     new Set(),  // ①造船所フィルター
   ownership:   new Set(),
   year:        new Set(),
   status:      new Set(),
   orderStatus: new Set(),
+  assignee:    new Set(),  // ⑨担当者フィルター
 };
+
+// ⑤ 船種タブ状態
+let activeTypeTab = '__all__';  // '__all__' or specific VESSEL_TYPE string
 
 const MDD_DEFS = [
   { id:'mddType',        stateKey:'type',        labelId:'mddTypeLabel',        listId:'mddTypeList',        menuId:'mddTypeMenu',        allLabel:'船種',     hasSearch:true,  fixed:null },
+  { id:'mddBuilder',     stateKey:'builder',     labelId:'mddBuilderLabel',     listId:'mddBuilderList',     menuId:'mddBuilderMenu',     allLabel:'造船所',   hasSearch:true,  fixed:null }, // ①
   { id:'mddOwnership',   stateKey:'ownership',   labelId:'mddOwnershipLabel',   listId:'mddOwnershipList',   menuId:'mddOwnershipMenu',   allLabel:'所有形態', hasSearch:false, fixed:null },
   { id:'mddYear',        stateKey:'year',        labelId:'mddYearLabel',        listId:'mddYearList',        menuId:'mddYearMenu',        allLabel:'納期年',   hasSearch:false, fixed:null },
   { id:'mddStatus',      stateKey:'status',      labelId:'mddStatusLabel',      listId:'mddStatusList',      menuId:'mddStatusMenu',      allLabel:'ステータス', hasSearch:false,
     fixed:[ {value:'upcoming90',label:'工事予定 90日以内'},{value:'upcoming180',label:'工事予定 180日以内'},{value:'delivery90',label:'引渡 90日以内'} ] },
   { id:'mddOrderStatus', stateKey:'orderStatus', labelId:'mddOrderStatusLabel', listId:'mddOrderStatusList', menuId:'mddOrderStatusMenu', allLabel:'受注状態', hasSearch:false,
     fixed:[ {value:'quote',label:'見積提出済み'},{value:'ordered',label:'受注済み'} ] },
+  { id:'mddAssignee',    stateKey:'assignee',    labelId:'mddAssigneeLabel',    listId:'mddAssigneeList',    menuId:'mddAssigneeMenu',    allLabel:'担当者',   hasSearch:false, fixed:null }, // ⑨
 ];
 
 // ============================================================
@@ -608,7 +655,7 @@ function renderKPI(rows, stats) {
 }
 
 // ============================================================
-// RENDER TIMELINE BANNER
+// RENDER TIMELINE BANNER  ⑦強化版: クリックでスクロール
 // ============================================================
 function renderBanner(rows) {
   const banner = document.getElementById('timelineBanner');
@@ -619,18 +666,53 @@ function renderBanner(rows) {
     const days = diffDays(next.date);
     if (days === null) return;
     if (days >= 0 && days <= 30)
-      alerts.push({ name: r.VESSEL_NAME||'—', label: next.label, days, cls:'urgent', icon:'fa-exclamation-triangle' });
+      alerts.push({ name: r.VESSEL_NAME||'—', uid: r.VESSEL_UID||'', label: next.label, days, cls:'urgent', icon:'fa-exclamation-triangle' });
     else if (days >= 0 && days <= 90)
-      alerts.push({ name: r.VESSEL_NAME||'—', label: next.label, days, cls:'warning', icon:'fa-clock' });
+      alerts.push({ name: r.VESSEL_NAME||'—', uid: r.VESSEL_UID||'', label: next.label, days, cls:'warning', icon:'fa-clock' });
+  });
+  // ③ 引渡し半年以内もバナーに追加
+  rows.forEach(r => {
+    const del = getDeliveryDate(r);
+    if (!del) return;
+    const days = diffDays(del);
+    if (days !== null && days >= 0 && days <= 180) {
+      const alreadyIn = alerts.some(a => a.uid === (r.VESSEL_UID||'') && a.label === '引渡');
+      if (!alreadyIn)
+        alerts.push({ name: r.VESSEL_NAME||'—', uid: r.VESSEL_UID||'', label:'引渡', days, cls: days<=90 ? 'urgent':'delivery-soon', icon:'fa-flag-checkered' });
+    }
   });
   alerts.sort((a,b) => a.days - b.days);
   if (alerts.length === 0) { banner.innerHTML = ''; return; }
-  banner.innerHTML = alerts.slice(0,8).map(a =>
-    `<span class="alert-chip ${a.cls}">
+  banner.innerHTML = alerts.slice(0,10).map(a =>
+    `<span class="alert-chip ${a.cls}" data-uid="${escAttr(a.uid)}" style="cursor:pointer" title="クリックで行にジャンプ">
       <i class="fas ${a.icon}"></i>
       <strong>${a.name}</strong>&nbsp;${a.label}：${daysLabel(a.days)}
     </span>`
   ).join('');
+  // ⑦ クリックで対象行にスクロール
+  banner.querySelectorAll('.alert-chip[data-uid]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const uid = chip.dataset.uid;
+      const row = document.querySelector(`#tableBody tr[data-uid="${CSS.escape(uid)}"]`);
+      if (row) {
+        row.scrollIntoView({ behavior:'smooth', block:'center' });
+        row.classList.add('row-highlight-flash');
+        setTimeout(() => row.classList.remove('row-highlight-flash'), 1800);
+      } else {
+        // ページをリセットして再検索
+        document.getElementById('searchInput').value = '';
+        Object.keys(filterState).forEach(k => filterState[k].clear());
+        activeTypeTab = '__all__';
+        MDD_DEFS.forEach(def => { syncMddCheckboxes(def); updateMddLabel(def); });
+        showAll = true;
+        applyFilters();
+        setTimeout(() => {
+          const r2 = document.querySelector(`#tableBody tr[data-uid="${CSS.escape(uid)}"]`);
+          if (r2) { r2.scrollIntoView({ behavior:'smooth', block:'center' }); r2.classList.add('row-highlight-flash'); setTimeout(()=>r2.classList.remove('row-highlight-flash'),1800); }
+        }, 200);
+      }
+    });
+  });
 }
 
 // ============================================================
@@ -781,9 +863,11 @@ function renderGantt(rows) {
     const osRowCls = os === 'ordered' ? ' gantt-row-ordered' : os === 'quote' ? ' gantt-row-quote' : '';
 
     // Order status badge in name cell
+    const nb_g = isNotBoarded(r);
     let osBadge = '';
-    if (os === 'quote')   osBadge = `<span class="badge badge-quote" style="font-size:.65rem"><i class="fas fa-file-alt"></i> 見積提出済み</span>`;
-    if (os === 'ordered') osBadge = `<span class="badge badge-ordered" style="font-size:.65rem"><i class="fas fa-handshake"></i> 受注済み</span>`;
+    if (nb_g)                osBadge = `<span class="badge badge-not-boarded" style="font-size:.65rem"><i class="fas fa-ban"></i> 非搭載</span>`;
+    else if (os==='quote')   osBadge = `<span class="badge badge-quote" style="font-size:.65rem"><i class="fas fa-file-alt"></i> 見積提出済み</span>`;
+    else if (os==='ordered') osBadge = `<span class="badge badge-ordered" style="font-size:.65rem"><i class="fas fa-handshake"></i> 受注済み</span>`;
 
     // date sub-labels under name
     let dateSub = '';
@@ -799,6 +883,15 @@ function renderGantt(rows) {
       const cellStart = m;
       const cellEnd   = months[i+1] || endMonth;
       const cellMs    = cellEnd - cellStart;
+
+      // 受注状態バックグラウンドライン（引渡月に色付きバーを表示）
+      let bgBar = '';
+      const delDate_g = getDeliveryDate(r);
+      if (delDate_g && delDate_g >= cellStart && delDate_g < cellEnd) {
+        const pct = ((delDate_g - cellStart) / cellMs * 100).toFixed(1);
+        const barcls = os==='ordered' ? 'gantt-del-ordered' : os==='quote' ? 'gantt-del-quote' : 'gantt-del-other';
+        bgBar = `<div class="gantt-del-bar ${barcls}" style="left:0;width:${pct}%"></div>`;
+      }
 
       let barsHTML = '';
       MILESTONES.forEach(mil => {
@@ -818,7 +911,7 @@ function renderGantt(rows) {
         const pct = ((TODAY - cellStart) / cellMs * 100).toFixed(1);
         todayLine = `<div class="gantt-today-line" style="left:${pct}%"></div>`;
       }
-      cells += `<td class="gantt-cell month-cell${isToday?' month-today':''}" style="position:relative;">${todayLine}${barsHTML}</td>`;
+      cells += `<td class="gantt-cell month-cell${isToday?' month-today':''}" style="position:relative;">${bgBar}${todayLine}${barsHTML}</td>`;
     });
 
     bodyRows += `<tr class="gantt-row${osRowCls}" data-name="${r.VESSEL_NAME||''}">${cells}</tr>`; // osRowCls already includes not-boarded
@@ -929,6 +1022,9 @@ function renderOspBody(rows) {
       <td class="osp-note-col">
         <input type="text" class="osp-note-input" data-key="${ek}" value="${(rec.note||'').replace(/"/g,'&quot;')}" placeholder="メモ…" maxlength="100" />
       </td>
+      <td class="osp-assignee-col">
+        <input type="text" class="osp-assignee-input" data-key="${ek}" value="${(rec.assignee||'').replace(/"/g,'&quot;')}" placeholder="担当者名…" maxlength="30" />
+      </td>
       <td>
         <button class="osp-save-btn btn-action" data-key="${ek}" style="font-size:.75rem;padding:4px 10px;">
           <i class="fas fa-save"></i> 保存
@@ -954,8 +1050,8 @@ function renderOspBody(rows) {
     sel.addEventListener('change', () => ospSaveRow(sel.dataset.key));
   });
 
-  // Events: date/note inputs → debounced auto-save
-  tbody.querySelectorAll('.osp-date-input, .osp-note-input').forEach(inp => {
+  // Events: date/note/assignee inputs → debounced auto-save
+  tbody.querySelectorAll('.osp-date-input, .osp-note-input, .osp-assignee-input').forEach(inp => {
     let timer;
     inp.addEventListener('input', () => {
       clearTimeout(timer);
@@ -982,11 +1078,13 @@ function ospSaveRow(key) {
   const quoteDate   = row.querySelector('.osp-quote-date').value;
   const orderedDate = row.querySelector('.osp-ordered-date').value;
   const note        = row.querySelector('.osp-note-input').value;
+  const assigneeEl  = row.querySelector('.osp-assignee-input');
+  const assignee    = assigneeEl ? assigneeEl.value.trim() : '';
   const nbChk       = row.querySelector('.osp-nb-chk');
   const notBoarded  = nbChk ? nbChk.checked : false;
 
   // ① メモリ＋localStorageに即時保存（これが唯一の正のデータソース）
-  saveOrderStatusRecord(key, { status, quoteDate, orderedDate, note, notBoarded });
+  saveOrderStatusRecord(key, { status, quoteDate, orderedDate, note, assignee, notBoarded });
 
   // ② OSPパネルの行見た目を即時更新
   if (notBoarded) {
@@ -1011,26 +1109,72 @@ function ospSaveRow(key) {
 }
 
 // ============================================================
+// CHANGE LOG PANEL
+// ============================================================
+function renderChangeLog() {
+  const panel = document.getElementById('changeLogPanel');
+  if (!panel) return;
+  const tbody = document.getElementById('changeLogBody');
+  if (!tbody) return;
+
+  const countEl = document.getElementById('changeLogCount');
+  if (countEl) countEl.textContent = changeLog.length;
+
+  if (changeLog.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="cl-empty">変更履歴はありません</td></tr>';
+    return;
+  }
+
+  // 新しい順に表示
+  const rows = [...changeLog].reverse().slice(0, 200);
+  tbody.innerHTML = rows.map(e => {
+    const dt = new Date(e.ts);
+    const dtStr = `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} `
+                + `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+    const oldTd = e.oldVal ? `<span class="cl-old">${e.oldVal}</span>` : '<span class="cl-empty-val">—</span>';
+    const newTd = e.newVal ? `<span class="cl-new">${e.newVal}</span>` : '<span class="cl-empty-val">—</span>';
+    return `<tr class="cl-row">
+      <td class="cl-ts">${dtStr}</td>
+      <td class="cl-by">${e.by||'—'}</td>
+      <td class="cl-vessel">${e.vesselName||'—'}</td>
+      <td class="cl-field">${e.field||'—'}</td>
+      <td class="cl-change">${oldTd} <i class="fas fa-arrow-right cl-arrow"></i> ${newTd}</td>
+    </tr>`;
+  }).join('');
+}
+
+function clearChangeLog() {
+  if (!confirm('変更履歴を全て削除してよろしいですか？')) return;
+  changeLog = [];
+  _saveChangeLog();
+  renderChangeLog();
+  toast('変更履歴を削除しました', 'info');
+}
+
+// ============================================================
 // EXPORT ORDER STATUS
 // ============================================================
 function exportOrderStatus() {
   const rows = allData;
-  const header = ['船名','船種','造船所','建造番号','引渡予定','非搭載','受注状態','見積提出日','受注日','メモ'];
+  const header = ['船名','船種','造船所','建造番号','引渡予定','引渡まで(日)','非搭載','受注状態','見積提出日','受注日','メモ','担当者'];
   const lines = rows.map(r => {
     const rec = getOrderStatusRecord(r);
     const os  = getOrderStatus(r);
     const del = getDeliveryDate(r);
+    const delDays2 = del ? diffDays(del) : null;
     return [
       r.VESSEL_NAME||'',
       r.VESSEL_TYPE||'',
       r.BUILDER||'',
       r.BUILDERS_VESSEL_NUMBER||'',
       del ? formatDate(del) : '',
+      delDays2 !== null ? String(delDays2) : '',
       rec.notBoarded ? '非搭載' : '',
       rec.notBoarded ? '—' : ORDER_STATUS_LABEL[os],
       rec.quoteDate||'',
       rec.orderedDate||'',
       rec.note||'',
+      rec.assignee||'',
     ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(',');
   });
   const blob = new Blob(['\uFEFF' + header.join(',') + '\n' + lines.join('\n')], { type:'text/csv;charset=utf-8;' });
@@ -1201,7 +1345,7 @@ function setupMddToggles() {
 function renderActiveFiltersBar() {
   const bar   = document.getElementById('activeFiltersBar');
   const chips = document.getElementById('afChips');
-  const labelMap = { type:'船種', ownership:'所有形態', year:'年', status:'ステータス', orderStatus:'受注状態' };
+  const labelMap = { type:'船種', builder:'造船所', ownership:'所有形態', year:'年', status:'ステータス', orderStatus:'受注状態', assignee:'担当者' };
   const statusLabel = { upcoming90:'工事90日', upcoming180:'工事180日', delivery90:'引渡90日', quote:'見積提出済み', ordered:'受注済み' };
   let html = ''; let any = false;
   MDD_DEFS.forEach(def => {
@@ -1228,16 +1372,45 @@ function renderActiveFiltersBar() {
 }
 
 function buildFilters(rows) {
-  const types  = [...new Set(rows.map(r => r.VESSEL_TYPE).filter(Boolean))].sort();
-  const owners = [...new Set(rows.map(r => r.OWNERSHIP_TYPE_BEFORE_DELIVERY).filter(Boolean))].sort();
-  const years  = [...new Set(rows.map(r => { const d = getDeliveryDate(r); return d ? d.getFullYear() : null; }).filter(Boolean))].sort((a,b) => a-b);
+  const types    = [...new Set(rows.map(r => r.VESSEL_TYPE).filter(Boolean))].sort();
+  const builders = [...new Set(rows.map(r => r.BUILDER || r.BUILDER_YARD).filter(Boolean))].sort(); // ①
+  const owners   = [...new Set(rows.map(r => r.OWNERSHIP_TYPE_BEFORE_DELIVERY).filter(Boolean))].sort();
+  const years    = [...new Set(rows.map(r => { const d = getDeliveryDate(r); return d ? d.getFullYear() : null; }).filter(Boolean))].sort((a,b) => a-b);
+  // ⑨ 担当者リスト（orderStatusStoreから収集）
+  const assignees = [...new Set(Object.values(orderStatusStore).map(r => r.assignee).filter(Boolean))].sort();
 
   populateMddList(MDD_DEFS[0], types);
-  populateMddList(MDD_DEFS[1], owners);
-  populateMddList(MDD_DEFS[2], years.map(String));
-  populateMddList(MDD_DEFS[3], []);
+  populateMddList(MDD_DEFS[1], builders);   // ①
+  populateMddList(MDD_DEFS[2], owners);
+  populateMddList(MDD_DEFS[3], years.map(String));
   populateMddList(MDD_DEFS[4], []);
+  populateMddList(MDD_DEFS[5], []);
+  populateMddList(MDD_DEFS[6], assignees);  // ⑨
+  buildTypeTabs(rows);  // ⑤
   setupMddToggles();
+}
+
+// ⑤ 船種タブ
+function buildTypeTabs(rows) {
+  const tabBar = document.getElementById('typeTabBar');
+  if (!tabBar) return;
+  const types = [...new Set(rows.map(r => r.VESSEL_TYPE).filter(Boolean))].sort();
+  const counts = {};
+  rows.forEach(r => { const t = r.VESSEL_TYPE||'不明'; counts[t]=(counts[t]||0)+1; });
+  let html = `<button class="type-tab${activeTypeTab==='__all__'?' active':''}" data-type="__all__">
+    全船種 <span class="type-tab-count">${rows.length}</span></button>`;
+  types.forEach(t => {
+    html += `<button class="type-tab${activeTypeTab===t?' active':''}" data-type="${escAttr(t)}">
+      ${t} <span class="type-tab-count">${counts[t]||0}</span></button>`;
+  });
+  tabBar.innerHTML = html;
+  tabBar.querySelectorAll('.type-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeTypeTab = btn.dataset.type;
+      tabBar.querySelectorAll('.type-tab').forEach(b => b.classList.toggle('active', b===btn));
+      applyFilters();
+    });
+  });
 }
 
 // ============================================================
@@ -1245,9 +1418,11 @@ function buildFilters(rows) {
 // ============================================================
 function buildTableHead() {
   const cols = COLUMN_DEFS.filter(c => visibleCols.includes(c.key));
-  const statusCol = `<th data-key="_status" class="status-col">ステータス <i class="fas fa-sort sort-icon"></i></th>`;
-  const nextCol   = `<th data-key="_next">次工程 <i class="fas fa-sort sort-icon"></i></th>`;
-  return `<tr>${statusCol}${nextCol}${cols.map(c =>
+  const statusCol   = `<th data-key="_status" class="status-col">ステータス <i class="fas fa-sort sort-icon"></i></th>`;
+  const nextCol     = `<th data-key="_next">次工程 <i class="fas fa-sort sort-icon"></i></th>`;
+  const delCol      = `<th data-key="_delivery" class="delivery-col">引渡まで <i class="fas fa-sort sort-icon"></i></th>`;
+  const assigneeCol = `<th data-key="_assignee" class="assignee-col">担当者 <i class="fas fa-sort sort-icon"></i></th>`;
+  return `<tr>${statusCol}${nextCol}${delCol}${assigneeCol}${cols.map(c =>
     `<th data-key="${c.key}">${c.label} <i class="fas fa-sort sort-icon"></i></th>`
   ).join('')}</tr>`;
 }
@@ -1326,9 +1501,27 @@ function buildTableRows(rows) {
       return `<td>${val}</td>`;
     }).join('');
 
+    // 引渡カウントダウン表示
+    let delCell = '—';
+    if (delDays !== null) {
+      if (delDays < 0)         delCell = `<span class="del-done"><i class="fas fa-anchor"></i> 引渡済</span>`;
+      else if (delDays === 0)  delCell = `<span class="del-today"><i class="fas fa-exclamation-circle"></i> 本日</span>`;
+      else if (delDays <= 30)  delCell = `<span class="del-urgent">${delDays}日</span>`;
+      else if (delDays <= 180) delCell = `<span class="del-soon">${delDays}日</span>`;
+      else                     delCell = `<span class="del-normal">${delDays}日</span>`;
+    }
+    // 担当者表示
+    const _rec2 = getOrderStatusRecord(r);
+    const _assigneeTxt = _rec2.assignee || '';
+    const assigneeCell = _assigneeTxt
+      ? `<span class="assignee-chip">${_assigneeTxt}</span>`
+      : '<span class="no-assignee">—</span>';
+
     return `<tr class="${rowCls}" data-uid="${r.VESSEL_UID||''}" data-name="${r.VESSEL_NAME||''}">
       <td>${statusBadge}</td>
       <td>${nextCell}</td>
+      <td class="delivery-col">${delCell}</td>
+      <td class="assignee-col">${assigneeCell}</td>
       ${cells}
     </tr>`;
   }).join('');
@@ -1443,6 +1636,21 @@ function applySort() {
         const bn = getNextMilestoneDate(b); bv = bn ? bn.date : new Date(9999,0,1);
         return (av - bv) * sortDir;
       }
+      if (sortKey === '_delivery') {
+        av = getDeliveryDate(a) || new Date(9999,0,1);
+        bv = getDeliveryDate(b) || new Date(9999,0,1);
+        return (av - bv) * sortDir;
+      }
+      if (sortKey === '_next') {
+        const an2 = getNextMilestoneDate(a); av = an2 ? an2.date : new Date(9999,0,1);
+        const bn2 = getNextMilestoneDate(b); bv = bn2 ? bn2.date : new Date(9999,0,1);
+        return (av - bv) * sortDir;
+      }
+      if (sortKey === '_assignee') {
+        av = (getOrderStatusRecord(a).assignee||'').toLowerCase();
+        bv = (getOrderStatusRecord(b).assignee||'').toLowerCase();
+        return av < bv ? -sortDir : av > bv ? sortDir : 0;
+      }
       av = a._dates[sortKey] || new Date(9999,0,1);
       bv = b._dates[sortKey] || new Date(9999,0,1);
       return (av - bv) * sortDir;
@@ -1456,15 +1664,20 @@ function applySort() {
 function applyFilters() {
   const q          = document.getElementById('searchInput').value.toLowerCase();
   const types      = filterState.type;
+  const builders   = filterState.builder;    // ①
   const owners     = filterState.ownership;
   const years      = filterState.year;
   const stats      = filterState.status;
   const orderStats = filterState.orderStatus;
+  const assignees  = filterState.assignee;   // ⑨
 
   filtered = allData.filter(r => {
+    // ⑤ 船種タブフィルター（タブとドロップダウンは独立）
+    if (activeTypeTab !== '__all__' && r.VESSEL_TYPE !== activeTypeTab) return false;
     if (q && ![r.VESSEL_NAME,r.BUILDER,r.BUILDERS_VESSEL_NUMBER,r.YARD,r.BUILDER_YARD].some(v => (v||'').toLowerCase().includes(q))) return false;
-    if (types.size  && !types.has(r.VESSEL_TYPE))  return false;
-    if (owners.size && !owners.has(r.OWNERSHIP_TYPE_BEFORE_DELIVERY)) return false;
+    if (types.size    && !types.has(r.VESSEL_TYPE))  return false;
+    if (builders.size && !builders.has(r.BUILDER || r.BUILDER_YARD)) return false; // ①
+    if (owners.size   && !owners.has(r.OWNERSHIP_TYPE_BEFORE_DELIVERY)) return false;
     if (years.size) {
       const d = getDeliveryDate(r);
       if (!d || !years.has(String(d.getFullYear()))) return false;
@@ -1482,6 +1695,10 @@ function applyFilters() {
       if (!pass) return false;
     }
     if (orderStats.size && !orderStats.has(getOrderStatus(r))) return false;
+    if (assignees.size) { // ⑨
+      const rec = getOrderStatusRecord(r);
+      if (!assignees.has(rec.assignee || '')) return false;
+    }
     return true;
   });
   applySort();
@@ -1607,6 +1824,10 @@ function openModal(r) {
           <label class="modal-os-label">メモ</label>
           <input type="text" class="modal-os-note" id="modalOsNote" value="${(rec.note||'').replace(/"/g,'&quot;')}" placeholder="メモを入力…" maxlength="200" />
         </div>
+        <div class="modal-os-row">
+          <label class="modal-os-label">担当者</label>
+          <input type="text" class="modal-os-assignee" id="modalOsAssignee" value="${(rec.assignee||'').replace(/"/g,'&quot;')}" placeholder="担当者名を入力…" maxlength="30" />
+        </div>
         <button class="btn-action modal-os-save" id="modalOsSave" data-key="${escAttr(key)}">
           <i class="fas fa-save"></i> 保存する
         </button>
@@ -1635,6 +1856,22 @@ function openModal(r) {
       <p style="font-size:.85rem;color:var(--slate-700);line-height:1.7">${r.REMARKS_TECHNICAL_DIV}</p>
     </div>` : ''}`;
 
+  // 変更履歴タブ（この船のログのみ表示）
+  const vesselLogs = changeLog.filter(e => e.vesselName === (r.VESSEL_NAME||key));
+  const logsHTML = vesselLogs.length === 0
+    ? '<p class="cl-empty" style="font-size:.8rem;color:var(--slate-400);padding:8px 0">変更履歴はありません</p>'
+    : [...vesselLogs].reverse().map(e => {
+        const dt = new Date(e.ts);
+        const dtStr = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+        return `<div class="modal-cl-row"><span class="modal-cl-ts">${dtStr}</span><span class="modal-cl-by">${e.by||'—'}</span><span class="modal-cl-field">${e.field}</span><span class="modal-cl-old">${e.oldVal||'—'}</span><i class="fas fa-arrow-right" style="color:var(--slate-400);font-size:.7rem;margin:0 4px"></i><span class="modal-cl-new">${e.newVal||'—'}</span></div>`;
+      }).join('');
+
+  const existingChangeSec = document.querySelector('#modalBody .modal-change-section');
+  const changeSec = document.createElement('div');
+  changeSec.className = 'modal-section modal-change-section';
+  changeSec.innerHTML = `<div class="modal-section-title"><i class="fas fa-history"></i> 変更履歴（この船）<span style="margin-left:6px;color:var(--slate-400);font-size:.75rem">${vesselLogs.length}件</span></div><div class="modal-cl-list">${logsHTML}</div>`;
+  document.getElementById('modalBody').appendChild(changeSec);
+
   document.getElementById('modalOverlay').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
 
@@ -1645,10 +1882,12 @@ function openModal(r) {
     const quoteDate   = document.getElementById('modalOsQuoteDate').value;
     const orderedDate = document.getElementById('modalOsOrderedDate').value;
     const note        = document.getElementById('modalOsNote').value;
+    const assigneeEl2 = document.getElementById('modalOsAssignee');
+    const assignee2   = assigneeEl2 ? assigneeEl2.value.trim() : '';
     const notBoarded  = document.getElementById('modalNbChk')?.checked || false;
     if (k) {
       // メモリ＋localStorage＋サーバー(fire-and-forget)に保存
-      saveOrderStatusRecord(k, { status, quoteDate, orderedDate, note, notBoarded });
+      saveOrderStatusRecord(k, { status, quoteDate, orderedDate, note, assignee: assignee2, notBoarded });
       const savedEl = document.getElementById('modalOsSaved');
       if (savedEl) { savedEl.classList.remove('hidden'); setTimeout(() => savedEl.classList.add('hidden'), 2000); }
       const stats2 = analyzeData(allData);
@@ -1670,13 +1909,18 @@ function closeModal() {
 // ============================================================
 function exportCSV() {
   const cols   = COLUMN_DEFS.filter(c => visibleCols.includes(c.key));
-  const header = ['ステータス','次工程',...cols.map(c => c.label)].join(',');
+  const header = ['ステータス','次工程','引渡まで(日)','担当者',...cols.map(c => c.label)].join(',');
   const rows   = filtered.map(r => {
-    const next = getNextMilestoneDate(r);
-    const days = next ? diffDays(next.date) : null;
-    const st   = next ? `${next.label} ${daysLabel(days)}` : '—';
+    const next    = getNextMilestoneDate(r);
+    const days    = next ? diffDays(next.date) : null;
+    const st      = next ? `${next.label} ${daysLabel(days)}` : '—';
+    const del     = getDeliveryDate(r);
+    const delDays = del ? diffDays(del) : null;
+    const rec3    = getOrderStatusRecord(r);
     return [
       daysStatus(days), st,
+      delDays !== null ? String(delDays) : '',
+      rec3.assignee || '',
       ...cols.map(c => {
         let v = r[c.key] || '';
         if (DATE_KEYS.includes(c.key)) v = formatDate(r._dates[c.key]);
@@ -1770,10 +2014,26 @@ async function loadSampleData() {
 // ============================================================
 
 // Excel から parseExcel() でパース済みの行配列を直接受け取って描画する
-async function _loadParsedRows(rows) {
+async function _loadParsedRows(rows, { mergeMode = false } = {}) {
   try {
     loadOrderStatusStore();
-    allData = rows;
+
+    if (mergeMode && allData.length > 0) {
+      // 差分マージ: 既存allDataに新規行を追加（VESSEL_NAMEで重複チェック）
+      const existingKeys = new Set(allData.map(r => getVesselKey(r)));
+      const newRows = rows.filter(r => !existingKeys.has(getVesselKey(r)));
+      const updatedRows = rows.filter(r => existingKeys.has(getVesselKey(r)));
+      allData = [...allData, ...newRows];
+      // 既存行の日付情報を更新（ステータス系は保持）
+      updatedRows.forEach(nr => {
+        const idx = allData.findIndex(r => getVesselKey(r) === getVesselKey(nr));
+        if (idx >= 0) allData[idx] = { ...allData[idx], ...nr, _dates: nr._dates };
+      });
+      toast(`差分マージ完了: 新規 ${newRows.length}隻追加・更新 ${updatedRows.length}隻`, 'success');
+    } else {
+      allData = rows;
+    }
+
     if (allData.length === 0) { toast('データが見つかりませんでした', 'error'); return; }
 
     filtered = [...allData];
@@ -1874,6 +2134,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const savedName = localStorage.getItem('molShipUserName');
   const userNameEl = document.getElementById('userName');
   if (savedName && userNameEl) userNameEl.value = savedName;
+
+  // 変更履歴読み込み
+  _loadChangeLog();
+  renderChangeLog();
 
   // サーバー検出 → localStorage読込 → サーバーにデータがあればマージ
   await detectServer();
@@ -2093,4 +2357,74 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.target === document.getElementById('modalOverlay')) closeModal();
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+  // 差分マージ用ファイル入力
+  const mergeInput = document.getElementById('mergeInput');
+  if (mergeInput) {
+    mergeInput.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          try {
+            const data = new Uint8Array(ev.target.result);
+            const rows = parseExcel(data);
+            if (!rows.length) { toast('Excelにデータが見つかりませんでした', 'error'); return; }
+            _loadParsedRows(rows, { mergeMode: true });
+          } catch(ex) {
+            toast('Excelの読み込みに失敗しました: ' + ex.message, 'error');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const rows = parseCSV(ev.target.result);
+          if (!rows.length) { toast('データが見つかりませんでした', 'error'); return; }
+          _loadParsedRows(rows, { mergeMode: true });
+        };
+        reader.readAsText(file, 'UTF-8');
+      }
+      mergeInput.value = '';
+    });
+  }
+
+  // 変更履歴パネル: 開閉トグル・クリア
+  const clToggleBtn = document.getElementById('clToggleBtn');
+  const clPanel     = document.getElementById('changeLogPanel');
+  if (clToggleBtn && clPanel) {
+    clToggleBtn.addEventListener('click', () => {
+      clPanel.classList.toggle('hidden');
+      const isOpen = !clPanel.classList.contains('hidden');
+      clToggleBtn.innerHTML = isOpen
+        ? '<i class="fas fa-chevron-up"></i> 変更履歴を閉じる'
+        : '<i class="fas fa-history"></i> 変更履歴 <span class="cl-badge" id="changeLogCount">' + changeLog.length + '</span>';
+      const clActions = document.getElementById('clHeaderActions');
+      if (clActions) clActions.classList.toggle('hidden', !isOpen);
+      if (isOpen) renderChangeLog();
+    });
+  }
+  const clClearBtn = document.getElementById('clClearBtn');
+  if (clClearBtn) {
+    clClearBtn.addEventListener('click', clearChangeLog);
+  }
+  const clExportBtn = document.getElementById('clExportBtn');
+  if (clExportBtn) {
+    clExportBtn.addEventListener('click', () => {
+      if (changeLog.length === 0) { toast('変更履歴がありません', 'info'); return; }
+      const hdr = ['日時','担当者','船名','項目','変更前','変更後'].join(',');
+      const rows = [...changeLog].reverse().map(e => {
+        return [e.ts, e.by||'', e.vesselName||'', e.field||'', e.oldVal||'', e.newVal||'']
+          .map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',');
+      });
+      const blob = new Blob(['\uFEFF' + hdr + '\n' + rows.join('\n')], { type:'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url;
+      a.download = 'MOL_変更履歴_' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '.csv';
+      a.click(); URL.revokeObjectURL(url);
+      toast('変更履歴CSVをエクスポートしました', 'success');
+    });
+  }
 });

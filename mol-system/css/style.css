@@ -1303,3 +1303,267 @@ body {
 ::-webkit-scrollbar-track { background: var(--slate-100); }
 ::-webkit-scrollbar-thumb { background: var(--slate-300); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--slate-400); }
+
+/* ============================================================
+   船種タブバー
+   ============================================================ */
+.type-tab-bar-wrap {
+  padding: 0 24px 0;
+  background: var(--slate-50);
+  border-bottom: 1px solid var(--slate-200);
+}
+.type-tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 0 6px;
+  overflow-x: auto;
+}
+.type-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  border: 1.5px solid var(--slate-300);
+  border-radius: 20px;
+  background: #fff;
+  color: var(--slate-600);
+  font-size: .78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.type-tab:hover {
+  border-color: var(--teal-500);
+  color: var(--teal-700);
+  background: var(--teal-50, #f0fdfa);
+}
+.type-tab.active {
+  border-color: var(--teal-600);
+  background: var(--teal-600);
+  color: #fff;
+  font-weight: 600;
+}
+.type-tab-count {
+  background: rgba(255,255,255,.25);
+  border-radius: 10px;
+  padding: 0 6px;
+  font-size: .72rem;
+  font-weight: 700;
+}
+.type-tab.active .type-tab-count { background: rgba(255,255,255,.3); }
+.type-tab:not(.active) .type-tab-count { background: var(--slate-100); color: var(--slate-500); }
+
+/* ============================================================
+   テーブル: 引渡まで列・担当者列
+   ============================================================ */
+.delivery-col, .assignee-col {
+  white-space: nowrap;
+  font-size: .82rem;
+}
+.del-done    { color: var(--slate-400); font-size: .78rem; }
+.del-today   { color: var(--red-600); font-weight: 700; font-size: .82rem; }
+.del-urgent  { color: var(--red-600); font-weight: 700; background: var(--red-50,#fef2f2); border-radius: 4px; padding: 1px 5px; }
+.del-soon    { color: var(--amber-600); font-weight: 600; background: var(--amber-50,#fffbeb); border-radius: 4px; padding: 1px 5px; }
+.del-normal  { color: var(--slate-600); }
+
+.assignee-chip {
+  display: inline-block;
+  background: var(--blue-50, #eff6ff);
+  color: var(--blue-700, #1d4ed8);
+  border: 1px solid var(--blue-200, #bfdbfe);
+  border-radius: 12px;
+  padding: 1px 8px;
+  font-size: .75rem;
+  font-weight: 500;
+}
+.no-assignee { color: var(--slate-300); font-size: .8rem; }
+
+/* ============================================================
+   バナークリック後ハイライトアニメーション
+   ============================================================ */
+@keyframes rowHighlightFlash {
+  0%   { background-color: var(--amber-100, #fef3c7); }
+  40%  { background-color: var(--amber-200, #fde68a); }
+  100% { background-color: transparent; }
+}
+.row-highlight-flash {
+  animation: rowHighlightFlash 1.8s ease-out forwards;
+}
+
+/* ============================================================
+   ガントバー: 引渡月の受注状態バー
+   ============================================================ */
+.gantt-del-bar {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  opacity: .15;
+  pointer-events: none;
+  border-radius: 0;
+}
+.gantt-del-ordered { background: var(--teal-500); opacity: .20; }
+.gantt-del-quote   { background: var(--purple-500, #a855f7); opacity: .15; }
+.gantt-del-other   { background: var(--slate-400); opacity: .07; }
+
+/* ============================================================
+   OSP 担当者列
+   ============================================================ */
+.osp-assignee-col { width: 110px; }
+.osp-assignee-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--slate-200);
+  border-radius: 5px;
+  font-size: .78rem;
+  color: var(--slate-700);
+  background: #fff;
+}
+.osp-assignee-input:focus { border-color: var(--blue-400); outline: none; }
+
+/* OSP ヘッダーアクション */
+.osp-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-merge {
+  background: var(--blue-50, #eff6ff) !important;
+  color: var(--blue-700, #1d4ed8) !important;
+  border-color: var(--blue-200, #bfdbfe) !important;
+  cursor: pointer;
+}
+.btn-merge:hover {
+  background: var(--blue-100, #dbeafe) !important;
+}
+
+/* ============================================================
+   変更履歴パネル
+   ============================================================ */
+.change-log-section {
+  max-width: 1400px;
+  margin: 0 auto 20px;
+  padding: 0 24px;
+}
+.cl-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+}
+.cl-toggle-btn {
+  font-size: .82rem !important;
+  padding: 6px 14px !important;
+  background: var(--slate-100) !important;
+  color: var(--slate-600) !important;
+  border-color: var(--slate-300) !important;
+}
+.cl-toggle-btn:hover { background: var(--slate-200) !important; }
+.cl-badge {
+  display: inline-block;
+  background: var(--teal-100);
+  color: var(--teal-700);
+  border-radius: 10px;
+  padding: 0 7px;
+  font-size: .72rem;
+  font-weight: 700;
+  min-width: 20px;
+  text-align: center;
+}
+.cl-header-actions {
+  display: flex;
+  gap: 6px;
+}
+.btn-danger {
+  background: var(--red-50, #fef2f2) !important;
+  color: var(--red-600, #dc2626) !important;
+  border-color: var(--red-200, #fecaca) !important;
+}
+.btn-danger:hover { background: var(--red-100, #fee2e2) !important; }
+
+.change-log-panel {
+  margin-top: 8px;
+  border: 1px solid var(--slate-200);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.cl-table-wrap {
+  overflow-x: auto;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.cl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .8rem;
+}
+.cl-table thead th {
+  background: var(--slate-50);
+  border-bottom: 1px solid var(--slate-200);
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--slate-500);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  white-space: nowrap;
+}
+.cl-th-ts     { width: 110px; }
+.cl-th-by     { width: 80px; }
+.cl-th-vessel { width: 160px; }
+.cl-th-field  { width: 90px; }
+.cl-th-change { }
+
+.cl-row { border-bottom: 1px solid var(--slate-100); }
+.cl-row:hover { background: var(--slate-50); }
+.cl-row td { padding: 6px 10px; vertical-align: middle; }
+
+.cl-ts     { color: var(--slate-400); font-size: .75rem; white-space: nowrap; }
+.cl-by     { color: var(--blue-600); font-weight: 600; font-size: .78rem; }
+.cl-vessel { color: var(--slate-700); font-weight: 500; }
+.cl-field  { color: var(--slate-500); font-size: .75rem; }
+.cl-change { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cl-old    { background: var(--red-50, #fef2f2); color: var(--red-600); border-radius: 4px; padding: 1px 6px; font-size: .75rem; }
+.cl-new    { background: var(--teal-50, #f0fdfa); color: var(--teal-700); border-radius: 4px; padding: 1px 6px; font-size: .75rem; font-weight: 600; }
+.cl-empty-val { color: var(--slate-300); font-size: .75rem; }
+.cl-arrow  { color: var(--slate-400); font-size: .7rem; }
+.cl-empty  { text-align: center; color: var(--slate-400); padding: 20px !important; font-size: .82rem; }
+
+/* モーダル内 変更履歴 */
+.modal-change-section { border-top: 1px solid var(--slate-200); margin-top: 16px; }
+.modal-cl-list { display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto; }
+.modal-cl-row  { display: flex; align-items: center; gap: 8px; font-size: .76rem; padding: 4px 2px; border-bottom: 1px solid var(--slate-100); flex-wrap: wrap; }
+.modal-cl-ts   { color: var(--slate-400); white-space: nowrap; flex: 0 0 auto; }
+.modal-cl-by   { color: var(--blue-600); font-weight: 600; flex: 0 0 auto; }
+.modal-cl-field{ color: var(--slate-500); flex: 0 0 auto; }
+.modal-cl-old  { background: var(--red-50,#fef2f2); color: var(--red-600); border-radius: 3px; padding: 0 5px; }
+.modal-cl-new  { background: var(--teal-50,#f0fdfa); color: var(--teal-700); border-radius: 3px; padding: 0 5px; font-weight: 600; }
+
+/* モーダル 担当者フィールド */
+.modal-os-assignee {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--slate-300);
+  border-radius: 7px;
+  font-size: .84rem;
+  background: #fff;
+  font-family: var(--font);
+  color: var(--slate-700);
+  min-width: 200px;
+}
+.modal-os-assignee:focus { border-color: var(--teal-600); outline: none; }
+
+/* ============================================================
+   引渡し半年以内バナー (alert-chip.delivery-soon)
+   ============================================================ */
+.alert-chip.delivery-soon {
+  background: linear-gradient(135deg, var(--red-50,#fef2f2), var(--amber-50,#fffbeb));
+  border-color: var(--red-300, #fca5a5);
+  color: var(--red-700, #b91c1c);
+}
+.alert-chip.delivery-soon .alert-ship { color: var(--red-600); }
+.alert-chip.delivery-soon .alert-event { color: var(--red-600); font-weight: 700; }
+

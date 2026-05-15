@@ -158,6 +158,11 @@
     </div>
   </section>
 
+  <!-- 船種タブバー -->
+  <div class="type-tab-bar-wrap">
+    <div class="type-tab-bar" id="typeTabBar"></div>
+  </div>
+
   <!-- Timeline Gantt -->
   <section class="gantt-section">
     <div class="section-header">
@@ -207,9 +212,15 @@
           <span class="osp-header-sub">船ごとに見積提出済み・受注済みを設定できます（ブラウザに自動保存）</span>
         </h2>
       </div>
-      <button class="btn-action osp-toggle-btn" id="ospToggleBtn">
-        <i class="fas fa-list-check"></i> 受注状態を管理する
-      </button>
+      <div class="osp-header-actions">
+        <label class="btn-action btn-merge" for="mergeInput" title="既存データに追記モードで読み込む">
+          <i class="fas fa-code-merge"></i> 追記読込
+        </label>
+        <input type="file" id="mergeInput" accept=".csv,.xlsx,.xls" hidden />
+        <button class="btn-action osp-toggle-btn" id="ospToggleBtn">
+          <i class="fas fa-list-check"></i> 受注状態を管理する
+        </button>
+      </div>
     </div>
     <div id="orderStatusPanel" class="hidden"></div>
   </section>
@@ -270,6 +281,29 @@
           </div>
         </div>
       </div>
+      <!-- 造船所 -->
+      <div class="mdd-wrap" id="mddBuilder">
+        <button class="mdd-btn" type="button">
+          <span class="mdd-label" id="mddBuilderLabel">造船所</span>
+          <i class="fas fa-chevron-down mdd-arrow"></i>
+        </button>
+        <div class="mdd-dropdown hidden" id="mddBuilderMenu">
+          <div class="mdd-search-wrap"><i class="fas fa-search"></i><input type="text" class="mdd-search" placeholder="絞り込み…" autocomplete="off" /></div>
+          <label class="mdd-item mdd-all"><input type="checkbox" value="__all__" checked /> すべて選択</label>
+          <div class="mdd-list" id="mddBuilderList"></div>
+        </div>
+      </div>
+      <!-- 担当者 -->
+      <div class="mdd-wrap" id="mddAssignee">
+        <button class="mdd-btn" type="button">
+          <span class="mdd-label" id="mddAssigneeLabel">担当者</span>
+          <i class="fas fa-chevron-down mdd-arrow"></i>
+        </button>
+        <div class="mdd-dropdown hidden" id="mddAssigneeMenu">
+          <label class="mdd-item mdd-all"><input type="checkbox" value="__all__" checked /> すべて選択</label>
+          <div class="mdd-list" id="mddAssigneeList"></div>
+        </div>
+      </div>
       <!-- 受注状態 -->
       <div class="mdd-wrap" id="mddOrderStatus">
         <button class="mdd-btn" type="button">
@@ -325,6 +359,40 @@
       </table>
     </div>
     <div class="pagination" id="pagination"></div>
+  </section>
+
+  <!-- 変更履歴ログパネル -->
+  <section class="change-log-section">
+    <div class="cl-header">
+      <button class="btn-action cl-toggle-btn" id="clToggleBtn">
+        <i class="fas fa-history"></i> 変更履歴
+        <span class="cl-badge" id="changeLogCount">0</span>
+      </button>
+      <div class="cl-header-actions hidden" id="clHeaderActions">
+        <button class="btn-action btn-secondary" id="clExportBtn" style="font-size:.78rem;padding:4px 12px;">
+          <i class="fas fa-download"></i> CSV出力
+        </button>
+        <button class="btn-action btn-danger" id="clClearBtn" style="font-size:.78rem;padding:4px 12px;">
+          <i class="fas fa-trash"></i> 履歴をクリア
+        </button>
+      </div>
+    </div>
+    <div class="change-log-panel hidden" id="changeLogPanel">
+      <div class="cl-table-wrap">
+        <table class="cl-table">
+          <thead>
+            <tr>
+              <th class="cl-th-ts">日時</th>
+              <th class="cl-th-by">担当者</th>
+              <th class="cl-th-vessel">船名</th>
+              <th class="cl-th-field">項目</th>
+              <th class="cl-th-change">変更内容</th>
+            </tr>
+          </thead>
+          <tbody id="changeLogBody"></tbody>
+        </table>
+      </div>
+    </div>
   </section>
 
   <!-- Back to upload -->
