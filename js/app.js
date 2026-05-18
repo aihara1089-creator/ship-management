@@ -466,16 +466,31 @@ function normalizeHeaders(headers) {
 //   - 通常のCSV的Excel（1行目がヘッダー）にも対応
 // ============================================================
 function parseExcel(buffer) {
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+  // cellDates:true にしてDateオブジェクトとして取得し、後で文字列変換する
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
+
+  // 日付型セル（t:'d'）を yyyy/mm/dd 文字列に変換
+  // （dateNF指定では "7/15/26" 形式になってしまうため手動変換）
+  Object.keys(sheet).filter(k => !k.startsWith('!')).forEach(k => {
+    const c = sheet[k];
+    if (c && c.t === 'd' && c.v instanceof Date) {
+      const d = c.v;
+      const yyyy = d.getFullYear();
+      const mm   = String(d.getMonth() + 1).padStart(2, '0');
+      const dd   = String(d.getDate()).padStart(2, '0');
+      c.t = 's';
+      c.v = `${yyyy}/${mm}/${dd}`;
+      c.w = c.v;
+    }
+  });
 
   // 全行を raw 文字列として取得
   const jsonRows = XLSX.utils.sheet_to_json(sheet, {
     header: 1,
     defval: '',
     raw: false,
-    dateNF: 'yyyy/mm/dd',
   });
 
   if (jsonRows.length < 2) return [];
