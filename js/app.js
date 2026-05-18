@@ -1191,8 +1191,11 @@ function exportOrderStatus() {
 // ============================================================
 function updateMddLabel(def) {
   const sel   = filterState[def.stateKey];
-  const btn   = document.getElementById(def.id).querySelector('.mdd-btn');
+  const wrap  = document.getElementById(def.id);
+  if (!wrap) return;
+  const btn   = wrap.querySelector('.mdd-btn');
   const label = document.getElementById(def.labelId);
+  if (!btn || !label) return;
   btn.querySelectorAll('.mdd-badge').forEach(b => b.remove());
   if (sel.size === 0) {
     label.textContent = def.allLabel;
@@ -1301,6 +1304,7 @@ function buildMddEvents(def) {
 
 function populateMddList(def, values) {
   const listEl = document.getElementById(def.listId);
+  if (!listEl) return; // HTML要素が存在しない場合はスキップ（旧HTMLとの互換性）
   if (!def.fixed) {
     // 動的リスト（船種・所有形態・納期年）はデータロードのたびに再生成
     listEl.innerHTML = values.map(v =>
@@ -1319,22 +1323,28 @@ function setupMddToggles() {
 
   MDD_DEFS.forEach(def => {
     const wrap = document.getElementById(def.id);
+    if (!wrap) return; // HTML要素がない場合はスキップ
     const btn  = wrap.querySelector('.mdd-btn');
     const menu = document.getElementById(def.menuId);
+    if (!btn || !menu) return;
     btn.addEventListener('click', e => {
       e.stopPropagation();
       const isOpen = !menu.classList.contains('hidden');
       MDD_DEFS.forEach(d => {
-        document.getElementById(d.menuId).classList.add('hidden');
-        document.getElementById(d.id).querySelector('.mdd-btn').classList.remove('open');
+        const dm = document.getElementById(d.menuId);
+        const dw = document.getElementById(d.id);
+        if (dm) dm.classList.add('hidden');
+        if (dw) dw.querySelector('.mdd-btn')?.classList.remove('open');
       });
       if (!isOpen) { menu.classList.remove('hidden'); btn.classList.add('open'); }
     });
   });
   document.addEventListener('click', () => {
     MDD_DEFS.forEach(d => {
-      document.getElementById(d.menuId).classList.add('hidden');
-      document.getElementById(d.id).querySelector('.mdd-btn').classList.remove('open');
+      const dm = document.getElementById(d.menuId);
+      const dw = document.getElementById(d.id);
+      if (dm) dm.classList.add('hidden');
+      if (dw) dw.querySelector('.mdd-btn')?.classList.remove('open');
     });
   });
   document.querySelectorAll('.mdd-dropdown').forEach(el => {
