@@ -455,6 +455,7 @@ body {
 .gantt-bar.keel     { background: #3b82f6; }
 .gantt-bar.launch   { background: #22c55e; }
 .gantt-bar.trial    { background: #f97316; }
+.gantt-bar.complete { background: #ec4899; }
 .gantt-bar.delivery { background: #8b5cf6; }
 .gantt-bar.past     { opacity: .4; }
 .gantt-today-line {
@@ -925,6 +926,7 @@ body {
 .milestone-dot.keel     { background: #3b82f6; }
 .milestone-dot.launch   { background: #22c55e; }
 .milestone-dot.trial    { background: #f97316; }
+.milestone-dot.complete { background: #ec4899; }
 .milestone-dot.delivery { background: #8b5cf6; }
 .milestone-label { font-size: .8rem; color: var(--slate-600); flex: 1; }
 .milestone-date  { font-size: .82rem; font-weight: 600; color: var(--slate-800); }

@@ -199,7 +199,8 @@ const COLUMN_DEFS = [
   { key:'LAUNCH_DATE',                    label:'進水日',           group:'工程',   default:true  },
   { key:'PLANNED_LAUNCH_DATE',            label:'進水予定日',       group:'工程',   default:true  },
   { key:'PLANNED_SEA_TRIALS_DATE',        label:'試運転予定日',     group:'工程',   default:true  },
-  { key:'PLANNED_DATE_OF_BUILD_DATE',     label:'竣工予定日',       group:'工程',   default:true  },
+  { key:'PLANNED_CONSTRUCTION_COMPLETE_DATE', label:'竣工予定日',    group:'工程',   default:true  },
+  { key:'PLANNED_DATE_OF_BUILD_DATE',     label:'完工予定日',       group:'工程',   default:true  },
   { key:'CONTRACT_DELIVERY_DATE_FROM',    label:'契約引渡(From)',   group:'工程',   default:true  },
   { key:'CONTRACT_DELIVERY_DATE_TO',      label:'契約引渡(To)',     group:'工程',   default:true  },
   { key:'LOA',                            label:'LOA(m)',           group:'船型',   default:false },
@@ -225,10 +226,11 @@ const DATE_KEYS = [
 ];
 
 const MILESTONES = [
-  { key:'CONSTRUCTION_START_DATE',     planned:'PLANNED_CONSTRUCTION_START_DATE', label:'起工',   cls:'keel'     },
-  { key:'LAUNCH_DATE',                 planned:'PLANNED_LAUNCH_DATE',             label:'進水',   cls:'launch'   },
-  { key:'PLANNED_SEA_TRIALS_DATE',     planned:'PLANNED_SEA_TRIALS_DATE',         label:'試運転', cls:'trial'    },
-  { key:'CONTRACT_DELIVERY_DATE_FROM', planned:'PLANNED_DATE_OF_BUILD_DATE',      label:'引渡',   cls:'delivery' },
+  { key:'CONSTRUCTION_START_DATE',          planned:'PLANNED_CONSTRUCTION_START_DATE', label:'起工',   cls:'keel'     },
+  { key:'LAUNCH_DATE',                      planned:'PLANNED_LAUNCH_DATE',             label:'進水',   cls:'launch'   },
+  { key:'PLANNED_SEA_TRIALS_DATE',          planned:'PLANNED_SEA_TRIALS_DATE',         label:'試運転', cls:'trial'    },
+  { key:'PLANNED_CONSTRUCTION_COMPLETE_DATE', planned:'PLANNED_CONSTRUCTION_COMPLETE_DATE', label:'竣工', cls:'complete' },
+  { key:'CONTRACT_DELIVERY_DATE_FROM',      planned:'PLANNED_DATE_OF_BUILD_DATE',      label:'引渡',   cls:'delivery' },
 ];
 
 // ============================================================
