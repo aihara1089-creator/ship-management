@@ -258,6 +258,7 @@ const filterState = {
   status:      new Set(),
   orderStatus: new Set(),
   assignee:    new Set(),  // ⑨担当者フィルター
+  shipMgmt:    new Set(),  // 船舶管理会社フィルター
 };
 
 // ⑤ 船種タブ状態
@@ -273,6 +274,7 @@ const MDD_DEFS = [
   { id:'mddOrderStatus', stateKey:'orderStatus', labelId:'mddOrderStatusLabel', listId:'mddOrderStatusList', menuId:'mddOrderStatusMenu', allLabel:'受注状態', hasSearch:false,
     fixed:[ {value:'quote',label:'見積提出済み'},{value:'ordered',label:'受注済み'} ] },
   { id:'mddAssignee',    stateKey:'assignee',    labelId:'mddAssigneeLabel',    listId:'mddAssigneeList',    menuId:'mddAssigneeMenu',    allLabel:'担当者',   hasSearch:false, fixed:null }, // ⑨
+  { id:'mddShipMgmt',   stateKey:'shipMgmt',   labelId:'mddShipMgmtLabel',   listId:'mddShipMgmtList',   menuId:'mddShipMgmtMenu',   allLabel:'船舶管理会社', hasSearch:true,  fixed:null }, // 船舶管理会社
 ];
 
 // ============================================================
@@ -1372,7 +1374,7 @@ function setupMddToggles() {
 function renderActiveFiltersBar() {
   const bar   = document.getElementById('activeFiltersBar');
   const chips = document.getElementById('afChips');
-  const labelMap = { type:'船種', builder:'造船所', ownership:'所有形態', year:'年', status:'ステータス', orderStatus:'受注状態', assignee:'担当者' };
+  const labelMap = { type:'船種', builder:'造船所', ownership:'所有形態', year:'年', status:'ステータス', orderStatus:'受注状態', assignee:'担当者', shipMgmt:'船舶管理会社' };
   const statusLabel = { upcoming90:'工事90日', upcoming180:'工事180日', delivery90:'引渡90日', quote:'見積提出済み', ordered:'受注済み' };
   let html = ''; let any = false;
   MDD_DEFS.forEach(def => {
@@ -1413,6 +1415,9 @@ function buildFilters(rows) {
   populateMddList(MDD_DEFS[4], []);
   populateMddList(MDD_DEFS[5], []);
   populateMddList(MDD_DEFS[6], assignees);  // ⑨
+  // 船舶管理会社リスト
+  const shipMgmts = [...new Set(rows.map(r => r.SHIP_MANAGEMENT_COMPANY_NAME_JPN).filter(Boolean))].sort();
+  populateMddList(MDD_DEFS[7], shipMgmts);
   buildTypeTabs(rows);  // ⑤
   setupMddToggles();
 }
@@ -1469,10 +1474,13 @@ function buildTableRows(rows) {
     const delDays = delDate ? diffDays(delDate) : null;
     const deliverySoon = delDays !== null && delDays >= 0 && delDays <= 180;
 
-    // 非搭載はグレーアウト最優先、引き渡し半年以内は赤、それ以外は緊急/注意
+    // 非搭載はグレーアウト最優先、引き渡し半年以内は赤、変更フラグ（新規/変更あり）、それ以外は緊急/注意
+    const changeFlag = r['変更フラグ'] || '';
     let rowCls = nb ? 'row-not-boarded'
                : deliverySoon ? 'row-delivery-soon'
-               : (st==='urgent' ? 'row-urgent' : st==='warning' ? 'row-warning' : '');
+               : (changeFlag === '新規'     ? 'row-change-new'
+               : (changeFlag === '変更あり' ? 'row-change-modified'
+               : (st==='urgent' ? 'row-urgent' : st==='warning' ? 'row-warning' : '')));
 
     let statusBadge = '';
     if (nb) {
@@ -1544,8 +1552,13 @@ function buildTableRows(rows) {
       ? `<span class="assignee-chip">${_assigneeTxt}</span>`
       : '<span class="no-assignee">—</span>';
 
+    // 変更フラグバッジ
+    let changeBadge = '';
+    if (changeFlag === '新規')       changeBadge = `<span class="badge badge-change-new"><i class="fas fa-plus-circle"></i> 新規</span>`;
+    else if (changeFlag === '変更あり') changeBadge = `<span class="badge badge-change-modified"><i class="fas fa-edit"></i> 変更</span>`;
+
     return `<tr class="${rowCls}" data-uid="${r.VESSEL_UID||''}" data-name="${r.VESSEL_NAME||''}">
-      <td>${statusBadge}</td>
+      <td>${statusBadge}${changeBadge}</td>
       <td>${nextCell}</td>
       <td class="delivery-col">${delCell}</td>
       <td class="assignee-col">${assigneeCell}</td>
@@ -1701,7 +1714,7 @@ function applyFilters() {
   filtered = allData.filter(r => {
     // ⑤ 船種タブフィルター（タブとドロップダウンは独立）
     if (activeTypeTab !== '__all__' && r.VESSEL_TYPE !== activeTypeTab) return false;
-    if (q && ![r.VESSEL_NAME,r.BUILDER,r.BUILDERS_VESSEL_NUMBER,r.YARD,r.BUILDER_YARD].some(v => (v||'').toLowerCase().includes(q))) return false;
+    if (q && ![r.VESSEL_NAME,r.BUILDER,r.BUILDERS_VESSEL_NUMBER,r.YARD,r.BUILDER_YARD,r.ACTUAL_OWNER_NAME_JPN,r.SHIP_MANAGEMENT_COMPANY_NAME_JPN].some(v => (v||'').toLowerCase().includes(q))) return false;
     if (types.size    && !types.has(r.VESSEL_TYPE))  return false;
     if (builders.size && !builders.has(r.BUILDER || r.BUILDER_YARD)) return false; // ①
     if (owners.size   && !owners.has(r.OWNERSHIP_TYPE_BEFORE_DELIVERY)) return false;
@@ -1726,6 +1739,7 @@ function applyFilters() {
       const rec = getOrderStatusRecord(r);
       if (!assignees.has(rec.assignee || '')) return false;
     }
+    if (filterState.shipMgmt.size && !filterState.shipMgmt.has(r.SHIP_MANAGEMENT_COMPANY_NAME_JPN || '')) return false;
     return true;
   });
   applySort();
@@ -1812,12 +1826,33 @@ function openModal(r) {
           ['発注者', r.SHIPBUILDING_CONTRUCT_PURCHASER||'—', false],
           ['使用状態', r.VESSEL_STATUS_OF_USE||'—', false],
           ['受注状態', ORDER_STATUS_LABEL[os], os!=='other'],
+          ['実質オーナー', r.ACTUAL_OWNER_NAME_JPN||'—', false],
+          ['船舶管理会社', r.SHIP_MANAGEMENT_COMPANY_NAME_JPN||'—', false],
         ].map(([l,v,hl]) => `<div class="modal-field">
           <div class="modal-field-label">${l}</div>
           <div class="modal-field-value${hl?' highlight':''}">${v}</div>
         </div>`).join('')}
       </div>
     </div>
+
+    ${(r['変更フラグ'] && r['変更フラグ'] !== '-') ? `
+    <div class="modal-section modal-change-flag-section">
+      <div class="modal-section-title"><i class="fas fa-exclamation-circle"></i> 変更情報</div>
+      <div class="modal-grid">
+        <div class="modal-field">
+          <div class="modal-field-label">変更フラグ</div>
+          <div class="modal-field-value">
+            ${r['変更フラグ'] === '新規'
+              ? '<span class="badge badge-change-new"><i class="fas fa-plus-circle"></i> 新規</span>'
+              : '<span class="badge badge-change-modified"><i class="fas fa-edit"></i> 変更あり</span>'}
+          </div>
+        </div>
+        ${r['変更内容'] ? `<div class="modal-field modal-field-wide">
+          <div class="modal-field-label">変更内容</div>
+          <div class="modal-field-value modal-change-detail">${String(r['変更内容']).replace(/\|/g,'<br>')}</div>
+        </div>` : ''}
+      </div>
+    </div>` : ''}
 
     <!-- 受注状態 編集パネル（モーダル内） -->
     <div class="modal-section modal-os-section">
@@ -1936,7 +1971,7 @@ function closeModal() {
 // ============================================================
 function exportCSV() {
   const cols   = COLUMN_DEFS.filter(c => visibleCols.includes(c.key));
-  const header = ['ステータス','次工程','引渡まで(日)','担当者',...cols.map(c => c.label)].join(',');
+  const header = ['ステータス','次工程','引渡まで(日)','担当者',...cols.map(c => c.label),'変更フラグ','変更内容'].join(',');
   const rows   = filtered.map(r => {
     const next    = getNextMilestoneDate(r);
     const days    = next ? diffDays(next.date) : null;
@@ -1953,7 +1988,9 @@ function exportCSV() {
         if (DATE_KEYS.includes(c.key)) v = formatDate(r._dates[c.key]);
         if (c.key === '_orderStatus') v = ORDER_STATUS_LABEL[getOrderStatus(r)];
         return `"${String(v).replace(/"/g,'""')}"`;
-      })
+      }),
+      `"${(r['変更フラグ']||'').replace(/"/g,'""')}"`,
+      `"${(r['変更内容']||'').replace(/"/g,'""')}"`
     ].join(',');
   });
   const blob = new Blob(['\uFEFF'+header+'\n'+rows.join('\n')], { type:'text/csv;charset=utf-8;' });
