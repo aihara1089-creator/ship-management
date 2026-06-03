@@ -472,7 +472,8 @@ function normalizeHeaders(headers) {
 function parseExcel(buffer) {
   // cellDates:true にしてDateオブジェクトとして取得し、後で文字列変換する
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
-  const sheetName = workbook.SheetNames[0];
+  // 月度更新Excelは「最後のシート = 最新月度」なので末尾シートを優先して読む
+  const sheetName = workbook.SheetNames[workbook.SheetNames.length - 1];
   const sheet = workbook.Sheets[sheetName];
 
   // 日付型セル（t:'d'）を yyyy/mm/dd 文字列に変換
@@ -1232,7 +1233,9 @@ function updateMddLabel(def) {
 function syncMddCheckboxes(def) {
   const sel  = filterState[def.stateKey];
   const list = document.getElementById(def.listId);
-  const allCb = document.getElementById(def.menuId).querySelector('.mdd-all input');
+  const menuEl = document.getElementById(def.menuId);
+  if (!list || !menuEl) return; // HTML要素がない場合はスキップ
+  const allCb = menuEl.querySelector('.mdd-all input');
   list.querySelectorAll('input[type="checkbox"]').forEach(cb => {
     cb.checked = sel.size === 0 || sel.has(cb.value);
   });
@@ -1245,10 +1248,12 @@ const _mddEventsRegistered = new Set();
 function buildMddEvents(def) {
   // 同じ def.id に対してイベントを二重登録しない
   if (_mddEventsRegistered.has(def.id)) return;
-  _mddEventsRegistered.add(def.id);
 
   const menuEl = document.getElementById(def.menuId);
   const listEl = document.getElementById(def.listId);
+  if (!menuEl || !listEl) return; // HTML要素がない場合はスキップ
+
+  _mddEventsRegistered.add(def.id);
 
   // 「すべて選択」チェックボックス — イベント委任で menuEl に付ける
   menuEl.addEventListener('change', e => {
