@@ -33,6 +33,15 @@
         <span class="brand-sub">新造船 工事予定ダッシュボード</span>
       </div>
     </div>
+    <!-- ページナビタブ -->
+    <nav class="page-nav" id="pageNav">
+      <button class="page-nav-btn active" id="navShiplist" data-page="shiplist">
+        <i class="fas fa-ship"></i> 新造船スケジュール
+      </button>
+      <button class="page-nav-btn" id="navFt" data-page="ft">
+        <i class="fas fa-network-wired"></i> FT搭載船リスト
+      </button>
+    </nav>
     <div class="header-meta" id="headerMeta">
       <span class="meta-badge" id="totalCount"><i class="fas fa-ship"></i> — 隻</span>
       <span class="meta-badge meta-date" id="lastUpdated"><i class="fas fa-clock"></i> 未読込</span>
@@ -426,7 +435,112 @@
 <!-- ===== TOAST ===== -->
 <div class="toast-container" id="toastContainer"></div>
 
+<!-- ===== FT搭載船リスト ===== -->
+<div class="ft-page hidden" id="ftPage">
+
+  <!-- FT アップロードエリア -->
+  <section class="ft-upload-section" id="ftUploadSection">
+    <div class="ft-upload-card" id="ftDropZone">
+      <div class="upload-icon"><i class="fas fa-file-excel" style="color:#10b981"></i></div>
+      <p class="upload-title">FleetTransfer 管理表を読み込む</p>
+      <p class="upload-subtitle">「FleetTransfer管理表_MOL殿向け.xlsx」をドロップ</p>
+      <label class="btn-upload" for="ftFileInput" style="background:linear-gradient(135deg,#10b981,#059669)">
+        <i class="fas fa-folder-open"></i> ファイルを選択
+      </label>
+      <input type="file" id="ftFileInput" accept=".xlsx,.xls" style="display:none" />
+      <p class="upload-hint">対応形式：Excel（.xlsx / .xls）</p>
+    </div>
+  </section>
+
+  <!-- FT ダッシュボード -->
+  <div class="ft-dashboard hidden" id="ftDashboard">
+
+    <!-- KPIバー -->
+    <div class="ft-kpi-bar">
+      <div class="ft-kpi-card">
+        <div class="ft-kpi-icon" style="background:#e0f2fe"><i class="fas fa-server" style="color:#0284c7"></i></div>
+        <div>
+          <div class="ft-kpi-val" id="ftKpiTotal">—</div>
+          <div class="ft-kpi-label">総搭載隻数</div>
+        </div>
+      </div>
+      <div class="ft-kpi-card">
+        <div class="ft-kpi-icon" style="background:#fef3c7"><i class="fas fa-windows" style="color:#d97706"></i></div>
+        <div>
+          <div class="ft-kpi-val" id="ftKpiWin7">—</div>
+          <div class="ft-kpi-label">Windows 7</div>
+        </div>
+      </div>
+      <div class="ft-kpi-card">
+        <div class="ft-kpi-icon" style="background:#d1fae5"><i class="fas fa-windows" style="color:#059669"></i></div>
+        <div>
+          <div class="ft-kpi-val" id="ftKpiWin10">—</div>
+          <div class="ft-kpi-label">Windows 10</div>
+        </div>
+      </div>
+      <div class="ft-kpi-card">
+        <div class="ft-kpi-icon" style="background:#ede9fe"><i class="fas fa-calendar-check" style="color:#7c3aed"></i></div>
+        <div>
+          <div class="ft-kpi-val" id="ftKpiScheduled">—</div>
+          <div class="ft-kpi-label">搭載予定</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 検索・フィルターバー -->
+    <div class="ft-controls-bar">
+      <div class="ft-search-wrap">
+        <i class="fas fa-search ft-search-icon"></i>
+        <input type="text" id="ftSearchInput" class="ft-search-input" placeholder="船名・Serial No. で検索…" />
+      </div>
+      <div class="ft-filter-group">
+        <!-- OSフィルター -->
+        <div class="ft-filter-btns" id="ftOsFilter">
+          <button class="ft-filter-btn active" data-os="all">すべて</button>
+          <button class="ft-filter-btn" data-os="Windows7">
+            <i class="fas fa-windows"></i> Win 7
+          </button>
+          <button class="ft-filter-btn" data-os="Windows10">
+            <i class="fas fa-windows"></i> Win 10
+          </button>
+        </div>
+      </div>
+      <div class="ft-action-group">
+        <button class="btn-action" id="ftBtnExport"><i class="fas fa-download"></i> CSV出力</button>
+        <button class="btn-action btn-secondary" id="ftBtnBack"><i class="fas fa-arrow-left"></i> 別ファイル</button>
+      </div>
+    </div>
+
+    <!-- テーブル情報バー -->
+    <div class="ft-table-info-bar">
+      <span id="ftTableCount">0 件表示</span>
+    </div>
+
+    <!-- テーブル -->
+    <div class="ft-table-wrap">
+      <table class="ft-table" id="ftTable">
+        <thead>
+          <tr>
+            <th class="ft-th-no">No.</th>
+            <th class="ft-th-name">船名</th>
+            <th class="ft-th-serial">Serial No.</th>
+            <th class="ft-th-os">OS</th>
+            <th class="ft-th-date">FT搭載日</th>
+            <th class="ft-th-note">備考</th>
+          </tr>
+        </thead>
+        <tbody id="ftTableBody"></tbody>
+      </table>
+    </div>
+
+    <!-- ページネーション -->
+    <div class="ft-pagination" id="ftPagination"></div>
+
+  </div><!-- /ft-dashboard -->
+</div><!-- /ft-page -->
+
 <!-- App JS -->
 <script src="js/app.js"></script>
+<script src="js/ft.js"></script>
 </body>
 </html>
