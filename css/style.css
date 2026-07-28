@@ -2205,3 +2205,48 @@ tr.row-change-modified:hover td { background: #fef3c7 !important; }
 }
 .ft-edit-save-btn:hover { opacity: .9; transform: translateY(-1px); }
 .ft-edit-save-btn:active { transform: translateY(0); }
+
+/* ---- 搭載予定トグルスイッチ ---- */
+.ft-edit-toggle-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.ft-edit-toggle-input { display: none; }
+.ft-edit-toggle-track {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--slate-200);
+  transition: background .2s;
+  flex-shrink: 0;
+}
+.ft-edit-toggle-input:checked + .ft-edit-toggle-track {
+  background: #0d9488;
+}
+.ft-edit-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+  transition: left .2s;
+}
+.ft-edit-toggle-input:checked + .ft-edit-toggle-track .ft-edit-toggle-thumb {
+  left: 23px;
+}
+.ft-edit-toggle-label {
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--slate-600);
+  transition: color .2s;
+}
+.ft-edit-toggle-input:checked ~ .ft-edit-toggle-label {
+  color: #0d9488;
+}

@@ -50,16 +50,19 @@ function ftApplyEdits(rows) {
     const key  = ftNormalizeKey(r.vesselName);
     const edit = ftEditStore[key];
     if (!edit) return r;
+    const newDate = edit.installDate !== undefined ? edit.installDate : r.installDate;
+    const newNote = edit.note        !== undefined ? edit.note        : r.note;
+    // scheduledOverride: true=強制予定, false=強制済み, undefined=自動判定
+    const isScheduled = edit.scheduledOverride !== undefined
+      ? edit.scheduledOverride
+      : ftIsScheduled(newDate, newNote);
     return {
       ...r,
       serialNo:    edit.serialNo    !== undefined ? edit.serialNo    : r.serialNo,
-      installDate: edit.installDate !== undefined ? edit.installDate : r.installDate,
+      installDate: newDate,
       os:          edit.os          !== undefined ? edit.os          : r.os,
-      note:        edit.note        !== undefined ? edit.note        : r.note,
-      isScheduled: ftIsScheduled(
-        edit.installDate !== undefined ? edit.installDate : r.installDate,
-        edit.note        !== undefined ? edit.note        : r.note,
-      ),
+      note:        newNote,
+      isScheduled,
       edited: true,
     };
   });
@@ -387,6 +390,10 @@ function openFtEditModal(normKey) {
     os:          edit.os          !== undefined ? edit.os          : (row.os          || 'Windows10'),
     note:        edit.note        !== undefined ? edit.note        : (row.note        || ''),
   };
+  // 現在の isScheduled（override or 自動）
+  const curScheduled = edit.scheduledOverride !== undefined
+    ? edit.scheduledOverride
+    : row.isScheduled;
 
   const overlay = document.getElementById('ftEditOverlay');
   if (!overlay) return;
@@ -400,11 +407,25 @@ function openFtEditModal(normKey) {
   const osSelect = overlay.querySelector('#ftEditOs');
   osSelect.value = cur.os;
 
+  // 予定トグル
+  const schedToggle = overlay.querySelector('#ftEditScheduled');
+  if (schedToggle) schedToggle.checked = curScheduled;
+
   // sourceバッジ
   overlay.querySelector('.ft-edit-source-info').innerHTML =
     row.source === 'auto'
       ? `<span class="ft-source-badge ft-source-auto"><i class="fas fa-link"></i> 受注連動エントリ</span>`
       : `<span class="ft-source-badge" style="background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0">Excelデータ</span>`;
+
+  // トグルのラベルをリアルタイム更新
+  if (schedToggle) {
+    const updateToggleLabel = () => {
+      const lbl = overlay.querySelector('#ftEditScheduledLabel');
+      if (lbl) lbl.textContent = schedToggle.checked ? '搭載予定' : '搭載済み';
+    };
+    updateToggleLabel();
+    schedToggle.onchange = updateToggleLabel;
+  }
 
   // 保存ボタン
   overlay.querySelector('#ftEditSave').onclick = () => {
@@ -413,11 +434,15 @@ function openFtEditModal(normKey) {
     const newOs     = overlay.querySelector('#ftEditOs').value;
     const newNote   = overlay.querySelector('#ftEditNote').value.trim();
 
+    const newScheduledOverride = overlay.querySelector('#ftEditScheduled')?.checked;
+    // 自動判定と一致する場合はoverride不要（undefinedにして自動に戻す）
+    const autoScheduled = ftIsScheduled(newDate, newNote);
     ftEditStore[normKey] = {
       serialNo:    newSerial,
       installDate: newDate,
       os:          newOs,
       note:        newNote,
+      scheduledOverride: newScheduledOverride === autoScheduled ? undefined : newScheduledOverride,
       editedAt:    new Date().toISOString(),
     };
     ftSaveStore();
