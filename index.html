@@ -504,6 +504,22 @@
             <i class="fas fa-windows"></i> Win 10
           </button>
         </div>
+        <!-- ソースフィルター -->
+        <div class="ft-filter-btns ft-source-filter" id="ftSourceFilter">
+          <button class="ft-filter-btn active" data-src="all">全ソース</button>
+          <button class="ft-filter-btn" data-src="excel">
+            <i class="fas fa-file-excel"></i> Excel
+          </button>
+          <button class="ft-filter-btn ft-filter-btn-auto" data-src="auto">
+            <i class="fas fa-link"></i> 受注連動
+          </button>
+          <button class="ft-filter-btn" data-src="scheduled">
+            <i class="fas fa-clock"></i> 搭載予定
+          </button>
+          <button class="ft-filter-btn ft-filter-btn-edited" data-src="edited">
+            <i class="fas fa-pen"></i> 編集済
+          </button>
+        </div>
       </div>
       <div class="ft-action-group">
         <button class="btn-action" id="ftBtnExport"><i class="fas fa-download"></i> CSV出力</button>
@@ -527,6 +543,7 @@
             <th class="ft-th-os">OS</th>
             <th class="ft-th-date">FT搭載日</th>
             <th class="ft-th-note">備考</th>
+            <th class="ft-th-action">編集</th>
           </tr>
         </thead>
         <tbody id="ftTableBody"></tbody>
@@ -538,6 +555,74 @@
 
   </div><!-- /ft-dashboard -->
 </div><!-- /ft-page -->
+
+<!-- ===== FT 編集モーダル ===== -->
+<div class="ft-edit-overlay hidden" id="ftEditOverlay">
+  <div class="ft-edit-modal">
+    <!-- ヘッダー -->
+    <div class="ft-edit-modal-header">
+      <div class="ft-edit-header-left">
+        <div class="ft-edit-icon"><i class="fas fa-pen"></i></div>
+        <div>
+          <div class="ft-edit-vessel-name">—</div>
+          <div class="ft-edit-source-info"></div>
+        </div>
+      </div>
+      <button class="ft-edit-close-btn" id="ftEditClose" title="閉じる">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <!-- ボディ -->
+    <div class="ft-edit-modal-body">
+      <div class="ft-edit-field">
+        <label class="ft-edit-label" for="ftEditSerial">
+          <i class="fas fa-barcode"></i> Serial No.
+        </label>
+        <input type="text" id="ftEditSerial" class="ft-edit-input"
+          placeholder="例：SN-20250101" />
+      </div>
+      <div class="ft-edit-field">
+        <label class="ft-edit-label" for="ftEditDate">
+          <i class="fas fa-calendar-alt"></i> FT搭載日
+        </label>
+        <input type="text" id="ftEditDate" class="ft-edit-input"
+          placeholder="例：2025/04/15 または 2025/04予定" />
+        <p class="ft-edit-hint">「予定」を含む場合は自動で搭載予定フラグが付きます</p>
+      </div>
+      <div class="ft-edit-field">
+        <label class="ft-edit-label" for="ftEditOs">
+          <i class="fas fa-windows"></i> OS
+        </label>
+        <select id="ftEditOs" class="ft-edit-select">
+          <option value="Windows7">Windows 7</option>
+          <option value="Windows10" selected>Windows 10</option>
+          <option value="Windows11">Windows 11</option>
+        </select>
+      </div>
+      <div class="ft-edit-field">
+        <label class="ft-edit-label" for="ftEditNote">
+          <i class="fas fa-sticky-note"></i> 備考
+        </label>
+        <textarea id="ftEditNote" class="ft-edit-textarea"
+          rows="3" placeholder="備考・メモを入力…"></textarea>
+      </div>
+    </div>
+    <!-- フッター -->
+    <div class="ft-edit-modal-footer">
+      <button class="ft-edit-reset-btn" id="ftEditReset">
+        <i class="fas fa-undo"></i> 編集をリセット
+      </button>
+      <div class="ft-edit-footer-right">
+        <button class="ft-edit-cancel-btn" id="ftEditClose2">
+          キャンセル
+        </button>
+        <button class="ft-edit-save-btn" id="ftEditSave">
+          <i class="fas fa-save"></i> 保存
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- App JS -->
 <script src="js/app.js"></script>
