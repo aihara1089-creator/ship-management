@@ -66,13 +66,38 @@ function ftApplyEdits(rows) {
 }
 
 function ftIsScheduled(installDate, note) {
-  if (!installDate) return true;
+  if (!installDate) return true;  // 日付未定 → 予定扱い
   const d = String(installDate);
   const n = String(note || '');
-  return n.includes('予定') || d.includes('予定')
-      || /\d{4}\/\d{1,2}\/\d{1,2}-\d{1,2}/.test(d)
-      || /^\d{4}\/\d{1,2}-\d{1,2}/.test(d)
-      || /^\d{4}\/\d{1,2}\/\d{1,2}-\d{2}/.test(d);
+
+  // 文字列に「予定」が含まれる場合は明示的に予定
+  if (n.includes('予定') || d.includes('予定')) return true;
+
+  // 日付範囲形式（例: 2025/04/10-15）は予定扱い
+  if (/\d{4}\/\d{1,2}\/\d{1,2}-\d{1,2}/.test(d)) return true;
+  if (/^\d{4}\/\d{1,2}-\d{1,2}/.test(d))          return true;
+  if (/^\d{4}\/\d{1,2}\/\d{1,2}-\d{2}/.test(d))   return true;
+
+  // 確定日付（yyyy/mm/dd）の場合：今日より未来なら予定、今日以前は搭載済み
+  const m = d.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if (m) {
+    const installMs = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+    const todayMs   = new Date(new Date().toDateString()).getTime(); // 時刻を0:00に正規化
+    return installMs > todayMs; // 未来 → true（予定）、今日・過去 → false（搭載済み）
+  }
+
+  // 年月のみ（yyyy/mm）の場合：当月末と比較
+  const m2 = d.match(/^(\d{4})\/(\d{1,2})$/);
+  if (m2) {
+    const year  = Number(m2[1]);
+    const month = Number(m2[2]);
+    const endOfMonth = new Date(year, month, 0).getTime(); // 月末日
+    const todayMs    = new Date(new Date().toDateString()).getTime();
+    return endOfMonth > todayMs; // 月末がまだ来ていない → 予定
+  }
+
+  // 解釈できない形式は予定扱い
+  return true;
 }
 
 // ============================================================
