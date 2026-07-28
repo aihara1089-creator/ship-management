@@ -203,6 +203,11 @@ function parseFtExcel(buffer) {
     });
   }
 
+  // デバッグ：搭載日の実際の値をコンソールに出力（確認後削除）
+  console.log('[FT debug] 搭載日サンプル（最後20件）:',
+    rows.slice(-20).map(r => ({ no: r.no, name: r.vesselName, date: r.installDate, sched: r.isScheduled }))
+  );
+
   return rows;
 }
 
