@@ -73,27 +73,34 @@ function ftIsScheduled(installDate, note) {
   // 文字列に「予定」が含まれる場合は明示的に予定
   if (n.includes('予定') || d.includes('予定')) return true;
 
-  // 日付範囲形式（例: 2025/04/10-15）は予定扱い
-  if (/\d{4}\/\d{1,2}\/\d{1,2}-\d{1,2}/.test(d)) return true;
-  if (/^\d{4}\/\d{1,2}-\d{1,2}/.test(d))          return true;
-  if (/^\d{4}\/\d{1,2}\/\d{1,2}-\d{2}/.test(d))   return true;
+  const todayMs = new Date(new Date().toDateString()).getTime(); // 今日0:00
 
-  // 確定日付（yyyy/mm/dd）の場合：今日より未来なら予定、今日以前は搭載済み
+  // 日付範囲形式（例: 2023/04/10-14 や 2023/04-05）
+  // → ハイフン前の開始日を取り出して過去か判定
+  const mRange = d.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})-/);
+  if (mRange) {
+    const installMs = new Date(Number(mRange[1]), Number(mRange[2]) - 1, Number(mRange[3])).getTime();
+    return installMs > todayMs;
+  }
+  // 年月範囲形式（例: 2023/04-05）→ 開始月の月末で比較
+  const mMonthRange = d.match(/^(\d{4})\/(\d{1,2})-/);
+  if (mMonthRange) {
+    const endOfMonth = new Date(Number(mMonthRange[1]), Number(mMonthRange[2]), 0).getTime();
+    return endOfMonth > todayMs;
+  }
+
+  // 確定日付（yyyy/mm/dd）
   const m = d.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
   if (m) {
     const installMs = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
-    const todayMs   = new Date(new Date().toDateString()).getTime(); // 時刻を0:00に正規化
-    return installMs > todayMs; // 未来 → true（予定）、今日・過去 → false（搭載済み）
+    return installMs > todayMs;
   }
 
-  // 年月のみ（yyyy/mm）の場合：当月末と比較
+  // 年月のみ（yyyy/mm）→ 当月末で比較
   const m2 = d.match(/^(\d{4})\/(\d{1,2})$/);
   if (m2) {
-    const year  = Number(m2[1]);
-    const month = Number(m2[2]);
-    const endOfMonth = new Date(year, month, 0).getTime(); // 月末日
-    const todayMs    = new Date(new Date().toDateString()).getTime();
-    return endOfMonth > todayMs; // 月末がまだ来ていない → 予定
+    const endOfMonth = new Date(Number(m2[1]), Number(m2[2]), 0).getTime();
+    return endOfMonth > todayMs;
   }
 
   // 解釈できない形式は予定扱い
@@ -202,11 +209,6 @@ function parseFtExcel(buffer) {
       source:      'excel',
     });
   }
-
-  // デバッグ：搭載日の実際の値をコンソールに出力（確認後削除）
-  console.log('[FT debug] 搭載日サンプル（最後20件）:',
-    rows.slice(-20).map(r => ({ no: r.no, name: r.vesselName, date: r.installDate, sched: r.isScheduled }))
-  );
 
   return rows;
 }
